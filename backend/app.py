@@ -1,4 +1,4 @@
-from flask import Flask, abort, send_from_directory   # <-- import this
+from flask import Flask, send_from_directory, abort
 from database import db
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
@@ -11,7 +11,8 @@ import os
 load_dotenv()
 
 # Tell Flask where your static files live
-app = Flask(__name__, static_folder="static", static_url_path="")
+app = Flask(__name__, static_folder="static", static_url_path="/static")
+app.url_map.strict_slashes = False
 CORS(app, supports_credentials=True)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///chatbot.db"
@@ -24,21 +25,21 @@ app.register_blueprint(auth_bp, url_prefix="/api/auth")
 
 socketio = SocketIO(app, cors_allowed_origins="*")
 register_socketio(socketio)
+for rule in app.url_map.iter_rules():
+    print(f"{rule.rule:35s}  {','.join(sorted(rule.methods))}  -> {rule.endpoint}")
 
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "testWithLogin.html")
 
-@app.route("/<path:path>", methods=["GET"])
-def static_proxy(path):
-    # Never serve static for API routes
+@app.route("/<path:path>", methods=["GET"], endpoint="spa_fallback")
+def spa_fallback(path):
     if path.startswith("api/"):
-        abort(404)
-
+        abort(404)   # never return HTML for API paths
     full = os.path.join(app.static_folder, path)
     if os.path.isfile(full):
         return send_from_directory(app.static_folder, path)
-    return send_from_directory(app.static_folder, "testWithLogin.html")  # same fallback as "/"
+    return send_from_directory(app.static_folder, "testWithLogin.html")
 
 with app.app_context():
     db.create_all()
