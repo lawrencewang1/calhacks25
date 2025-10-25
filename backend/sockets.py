@@ -251,9 +251,9 @@ def _llm_stream_task(socketio, run_id: str, user_text: str):
                 pass
 
         # Finalize
+        text = "".join(final).strip()
         if text == '[NO_RESPONSE]':
             return
-        text = "".join(final).strip()
         if text:
             messages.append({"id": str(uuid.uuid4()), "sender":"assistant",
                              "text": text, "ts": int(time.time()*1000)})
