@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Multiplayer AI Chat</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <link rel="stylesheet" href="css/main.css" />
+  <link rel="stylesheet" href="css/chat.css" />
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Multiplayer AI Chat</h1>
+    <span id="status">disconnected</span>
+    <span id="users">users: 0</span>
+  </header>
+
+  <div id="log"></div>
+
+  <div id="composer">
+    <input id="text" placeholder="Type a message… (mention the bot with @ai)" maxlength="500" autofocus />
+    <span id="charCount" class="char-count">0/500</span>
+    <button id="send" class="primary">Send</button>
+    <button id="stop">Stop</button>
+  </div>
+
+  <footer>
+    <div class="meta">JWT: <span id="jwtPreview">(none)</span></div>
+  </footer>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/chat.js"></script>
+</body>
+</html>

@@ -1,0 +1,103 @@
+/**
+ * Authentication logic for login and registration.
+ */
+
+/**
+ * Set authentication message.
+ * @param {string} t - The message text
+ * @param {boolean} isError - Whether this is an error message
+ */
+function setAuthMsg(t, isError = false) {
+  const el = $('authMsg');
+  el.textContent = t || '';
+  el.className = isError ? 'meta error' : 'meta';
+}
+
+/**
+ * Perform login.
+ * @returns {Promise<void>}
+ */
+async function doLogin() {
+  const email = $('email').value.trim();
+  const password = $('password').value;
+
+  if (!email || !password) {
+    return setAuthMsg('Email & password required.', true);
+  }
+
+  try {
+    const j = await postJSON(`${BACKEND_DEFAULT}/api/auth/login`, {email, password});
+    const token = j.access_token || j.token;
+
+    if (!token) {
+      throw new Error('No access_token');
+    }
+
+    saveToken(token);
+    setAuthMsg('Logged in. Redirecting...');
+
+    // Redirect to chat page
+    setTimeout(() => {
+      window.location.href = 'chat.html';
+    }, 500);
+  } catch (e) {
+    setAuthMsg('Login error: ' + e.message, true);
+  }
+}
+
+/**
+ * Perform registration.
+ * @returns {Promise<void>}
+ */
+async function doRegister() {
+  const username = $('username').value.trim();
+  const email = $('email').value.trim();
+  const password = $('password').value;
+  const confirmPassword = $('confirmPassword').value;
+
+  if (!username || !email || !password || !confirmPassword) {
+    return setAuthMsg('All fields are required.', true);
+  }
+
+  if (password !== confirmPassword) {
+    return setAuthMsg('Passwords do not match.', true);
+  }
+
+  if (password.length < 6) {
+    return setAuthMsg('Password must be at least 6 characters.', true);
+  }
+
+  try {
+    console.log('Registering user...');
+    const response = await postJSON(`${BACKEND_DEFAULT}/api/auth/register`, {
+      name: username,
+      email: email,
+      password: password
+    });
+
+    console.log('Registration response:', response);
+
+    // Automatically log in after successful registration
+    const token = response.access_token || response.token;
+    console.log('Token from registration:', token ? token.substring(0, 20) + '...' : 'null');
+
+    if (token) {
+      saveToken(token);
+      console.log('Token saved to localStorage');
+      console.log('Verification - token in localStorage:', localStorage.getItem('access_token') ? 'present' : 'missing');
+      setAuthMsg('Account created! Redirecting to chat...');
+      setTimeout(() => {
+        window.location.href = 'chat.html';
+      }, 1000);
+    } else {
+      console.warn('No token received from registration!');
+      setAuthMsg('Account created! Redirecting to login...');
+      setTimeout(() => {
+        window.location.href = 'login.html';
+      }, 1000);
+    }
+  } catch (e) {
+    console.error('Registration error:', e);
+    setAuthMsg('Registration error: ' + e.message, true);
+  }
+}

@@ -1,4 +1,4 @@
-from database import db
+from backend.extensions import db
 import uuid, time
 
 class Message(db.Model):

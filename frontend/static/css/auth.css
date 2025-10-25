@@ -1,0 +1,37 @@
+/* Styles for authentication pages (login, register) */
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.card {
+  background: var(--card);
+  padding: 20px;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: var(--fg);
+}
+
+.card input,
+.card button {
+  width: 100%;
+  margin: 6px 0;
+}
+
+.card .meta {
+  text-align: center;
+}
+
+.card .meta.error {
+  color: #f87171;
+}

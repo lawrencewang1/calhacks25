@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Register - Multiplayer AI Chat</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="css/main.css" />
+  <link rel="stylesheet" href="css/auth.css" />
+</head>
+<body>
+  <div class="card">
+    <h2>Create Account</h2>
+    <form id="registerForm">
+      <label>Username</label>
+      <input id="username" placeholder="Choose a username" required autofocus />
+
+      <label>Email</label>
+      <input id="email" type="email" placeholder="you@example.com" required />
+
+      <label>Password</label>
+      <input id="password" type="password" placeholder="••••••••" required />
+
+      <label>Confirm Password</label>
+      <input id="confirmPassword" type="password" placeholder="••••••••" required />
+
+      <button type="submit" class="primary">Create Account</button>
+      <button type="button" class="secondary" id="backToLogin">Back to Login</button>
+    </form>
+
+    <div class="meta" id="authMsg"></div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    // Back to login button
+    $('backToLogin').onclick = () => {
+      window.location.href = 'login.html';
+    };
+
+    // Handle form submission
+    $('registerForm').onsubmit = async (e) => {
+      e.preventDefault();
+      await doRegister();
+    };
+  </script>
+</body>
+</html>

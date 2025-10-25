@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Login - Multiplayer AI Chat</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="css/main.css" />
+  <link rel="stylesheet" href="css/auth.css" />
+</head>
+<body>
+  <div class="card">
+    <h2>Login</h2>
+    <label>Email</label>
+    <input id="email" type="email" placeholder="you@example.com" autofocus />
+    <label>Password</label>
+    <input id="password" type="password" placeholder="••••••••" />
+    <button id="login" class="primary">Login</button>
+
+    <div class="meta" id="authMsg"></div>
+    <div class="meta">
+      Don't have an account? <a href="register.html" class="link">Create one</a>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    // Set up login button
+    $('login').onclick = doLogin;
+
+    // Allow Enter key to submit
+    $('password').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        doLogin();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+/* Main styles shared across the application */
+
+:root {
+  --bg: #0f172a;
+  --fg: #e2e8f0;
+  --muted: #94a3b8;
+  --card: #111827;
+  --acc: #22d3ee;
+  --border: #334155;
+  --bg-input: #0b1220;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font: 14px/1.4 system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* Common form elements */
+input,
+button {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+input {
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--fg);
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--acc);
+}
+
+button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--fg);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+button:hover {
+  background: var(--border);
+}
+
+button.primary {
+  background: linear-gradient(90deg, #22d3ee, #a78bfa);
+  border: none;
+  color: #001018;
+  font-weight: 600;
+}
+
+button.primary:hover {
+  opacity: 0.9;
+}
+
+button.secondary {
+  background: var(--border);
+  color: var(--fg);
+}
+
+/* Common utility classes */
+.meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.link {
+  color: var(--acc);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+label {
+  display: block;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  font-size: 14px;
+  color: #cbd5e1;
+}

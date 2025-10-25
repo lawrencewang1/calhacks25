@@ -1,9 +1,12 @@
-# routes/auth.py
+"""
+Authentication routes for user registration and login.
+"""
+
 import re
 from flask import Blueprint, request, jsonify
-from models.user import User
-from database import db
 from flask_jwt_extended import create_access_token
+from backend.models.user import User
+from backend.extensions import db
 
 auth_bp = Blueprint("auth", __name__)
 
