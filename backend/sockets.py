@@ -32,7 +32,7 @@ Respond Naturally and at the Right Time:
 Don’t interrupt active human exchanges.
 Wait until a user asks a direct question, mentions you, or leaves a gap in conversation.
 You will be referred to as "Assistant", "Chatbot", or "AI".
-Avoid replying to every message; prioritize helpful or relevant responses.
+Avoid replying to every message; prioritize helpful or relevant responses, UNLESS YOU ARE MENTIONED.
 If no response is needed, reply with exactly "[NO_RESPONSE]".
 
 Be Helpful and Informative:
@@ -223,6 +223,7 @@ def _payload(messages):
     return {"messages": messages, "stream": True, "max_tokens": MAX_OUT_TOKENS}
 
 def _llm_stream_task(socketio, run_id: str, user_text: str):
+    print(f'STARTING STREAM: {user_text}')
     ctrl = active_runs.get(run_id)
     final = []
     sent_any_delta = False
