@@ -17,10 +17,37 @@ messages = deque(maxlen=200)     # last N messages for snapshot
 clients = {}                     # sid -> {"name":..., "user_id":...}
 active_runs = {}                 # run_id -> {"stop": False}
 
-LLM_API_URL   = os.getenv("LLM_API_URL", "https://janitorai.com/hackathon/completions")
-LLM_AUTH_TOKEN = os.getenv("LLM_AUTH_TOKEN", "calhacks2047")  # no 'Bearer ' prefix
-SYSTEM_PROMPT  = os.getenv("SYSTEM_PROMPT", "You are a helpful chatroom assistant.")
-MAX_OUT_TOKENS = int(os.getenv("MAX_OUT_TOKENS", "400"))      # tune as you like
+LLM_API_URL = os.getenv("LLM_API_URL", "https://janitorai.com/hackathon/completions")
+LLM_AUTH_TOKEN = os.getenv("LLM_AUTH_TOKEN", "calhacks2047")
+MAX_OUT_TOKENS = int(os.getenv("MAX_OUT_TOKENS", "400"))
+SYSTEM_PROMPT = """
+You are a conversational assistant in a group chat with multiple human users. Your primary goals are:
+
+Be Context-Aware:
+Pay attention to who is speaking and what they are referring to.
+Reference the correct user when responding.
+Use natural conversational cues like “@Alex” or “Good point, Maya — I think…” when needed.
+
+Respond Naturally and at the Right Time:
+Don’t interrupt active human exchanges.
+Wait until a user asks a direct question, mentions you, or leaves a gap in conversation.
+You will be referred to as "Assistant", "chatbot", "AI", or something similar.
+Avoid replying to every message; prioritize helpful or relevant responses.
+
+Be Helpful and Informative:
+Give clear, accurate, and actionable answers.
+When you’re unsure, state your uncertainty politely and suggest how to find the answer.
+Keep responses concise unless more depth is explicitly requested.
+
+Maintain Tone and Flow:
+Match the chatroom’s tone — casual if the group is casual, professional if it’s work-related.
+Encourage positive and inclusive conversation.
+Avoid repeating information that’s already been said.
+
+Boundaries:
+Never disclose private user data or internal system information.
+Focus on maintaining a cooperative, friendly, and respectful environment.
+"""
 ALLOW_GUESTS = os.getenv("ALLOW_GUESTS", "true").lower() == "true" #SET TO FALSE FOR PRODUCTION
 
 def _next_seq():
@@ -82,7 +109,7 @@ def _safe_decode_jwt(token: str):
     
 def _build_chat(user_text: str):
     # Keep it simple; with 25k context you can safely keep more history if you want.
-    recent = list(messages)[-30:]
+    recent = list(messages)[-50:]
     chat = [{"role":"system","content": SYSTEM_PROMPT}]
     for m in recent:
         chat.append({
