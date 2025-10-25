@@ -28,6 +28,7 @@ Use natural conversational cues like “@Alex” or “Good point, Maya — I th
 Respond Naturally and at the Right Time:
 Don’t interrupt active human exchanges.
 Wait until a user asks a direct question, mentions you, or leaves a gap in conversation.
+You will be referred to as "Assistant", "chatbot", "AI", or something similar.
 Avoid replying to every message; prioritize helpful or relevant responses.
 
 Be Helpful and Informative:
@@ -95,7 +96,7 @@ def _parse_sse_chunk(raw: str):
 
 def _build_chat(user_text: str):
     # Keep it simple; with 25k context you can safely keep more history if you want.
-    recent = list(messages)[-30:]
+    recent = list(messages)[-50:]
     chat = [{"role":"system","content": SYSTEM_PROMPT}]
     for m in recent:
         chat.append({
