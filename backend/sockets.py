@@ -270,8 +270,6 @@ def _llm_stream_task(socketio, run_id: str, user_text: str):
                 "final_text":"", "usage":{"in":0,"out":0}},
                 room=ROOM_ID
             )
-            messages.append({"id": str(uuid.uuid4()), "sender":"assistant",
-                            "text": 'pp', "ts": int(time.time()*1000)})
             return
 
         if final_text:
