@@ -9,7 +9,7 @@ from flask_jwt_extended.exceptions import JWTExtendedException
 from jwt.exceptions import InvalidTokenError, DecodeError  # from PyJWT
 from database import db
 from models.user import User
-# (optional) from models.message import Message
+import threading
 
 ROOM_ID = "global"
 room_seq = 0
@@ -31,8 +31,9 @@ Use natural conversational cues like “@Alex” or “Good point, Maya — I th
 Respond Naturally and at the Right Time:
 Don’t interrupt active human exchanges.
 Wait until a user asks a direct question, mentions you, or leaves a gap in conversation.
-You will be referred to as "Assistant", "chatbot", "AI", or something similar.
+You will be referred to as "Assistant", "Chatbot", or "AI".
 Avoid replying to every message; prioritize helpful or relevant responses.
+If no response is needed, reply with exactly "[NO_RESPONSE]".
 
 Be Helpful and Informative:
 Give clear, accurate, and actionable answers.
@@ -175,7 +176,6 @@ def register_socketio(socketio):
     @socketio.on("client")
     def _on_client(msg):
         t = msg.get("type")
-        # ❗ remove the old 'join' branch if you had one — no longer needed
         if t == "send.message":
             # existing message handling (same as you have)
             # use clients[request.sid]["name"] to attribute the sender
@@ -191,7 +191,13 @@ def register_socketio(socketio):
             seq = _next_seq()
             messages.append(m)
             socketio.emit("server", {"type":"message.appended","room_seq":seq,"message":m}, room=ROOM_ID)
-            # then start your LLM run as before...
+            run_id = str(uuid.uuid4())
+            active_runs[run_id] = {"stop": False}
+            threading.Thread(
+                target=_llm_stream_task,
+                args=(socketio, run_id, text),
+                daemon=True
+            ).start()
         elif t == "run.stop":
             rid = msg.get("run_id")
             ctrl = active_runs.get(rid)
@@ -245,6 +251,8 @@ def _llm_stream_task(socketio, run_id: str, user_text: str):
                 pass
 
         # Finalize
+        if text == '[NO_RESPONSE]':
+            return
         text = "".join(final).strip()
         if text:
             messages.append({"id": str(uuid.uuid4()), "sender":"assistant",
