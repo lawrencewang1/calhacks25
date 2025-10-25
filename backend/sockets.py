@@ -123,6 +123,7 @@ def _build_chat(user_text: str):
 def register_socketio(socketio):
     @socketio.on("connect")
     def _on_connect(auth):
+        print("WS connect:", {"sid": request.sid, "auth": bool(auth)})
         # auth is a dict sent by the client: { token, name? }
         token = (auth or {}).get("token")
         name  = ((auth or {}).get("name") or "anon")[:24]
@@ -163,6 +164,7 @@ def register_socketio(socketio):
 
     @socketio.on("disconnect")
     def _on_disconnect():
+        print("WS disconnect:", request.sid)
         if request.sid in clients:
             clients.pop(request.sid, None)
             seq = _next_seq()
@@ -175,6 +177,7 @@ def register_socketio(socketio):
 
     @socketio.on("client")
     def _on_client(msg):
+        print("WS event:", msg)   # <<— see incoming payloads
         t = msg.get("type")
         if t == "send.message":
             # existing message handling (same as you have)
@@ -190,9 +193,16 @@ def register_socketio(socketio):
             }
             seq = _next_seq()
             messages.append(m)
-            socketio.emit("server", {"type":"message.appended","room_seq":seq,"message":m}, room=ROOM_ID)
+            socketio.emit("server", {"type":"message.appended","room_seq":seq,"message":m}, to=request.sid)
+            socketio.emit("server", {"type":"message.appended","room_seq":seq,"message":m}, room=ROOM_ID, skip_sid=request.sid)
             run_id = str(uuid.uuid4())
             active_runs[run_id] = {"stop": False}
+
+            socketio.emit("server", {
+                "type": "assistant.started",
+                "room_seq": _next_seq(),
+                "run": {"run_id": run_id, "parent_message_id": m["id"]}
+            }, room=ROOM_ID)
             threading.Thread(
                 target=_llm_stream_task,
                 args=(socketio, run_id, text),
@@ -251,17 +261,23 @@ def _llm_stream_task(socketio, run_id: str, user_text: str):
                 pass
 
         # Finalize
-        if text == '[NO_RESPONSE]':
+        final_text = "".join(final).strip()
+        # If the policy told the model to not respond, just complete without appending
+        if final_text == "[NO_RESPONSE]":
+            socketio.emit("server",
+                {"type":"assistant.completed","room_seq":_next_seq(),"run_id":run_id,
+                "final_text":"", "usage":{"in":0,"out":0}},
+                room=ROOM_ID
+            )
             return
-        text = "".join(final).strip()
-        if text:
-            messages.append({"id": str(uuid.uuid4()), "sender":"assistant",
-                             "text": text, "ts": int(time.time()*1000)})
 
-        seq_room = _next_seq()
+        if final_text:
+            messages.append({"id": str(uuid.uuid4()), "sender":"assistant",
+                            "text": final_text, "ts": int(time.time()*1000)})
+
         socketio.emit("server",
-            {"type":"assistant.completed","room_seq":seq_room,"run_id":run_id,
-             "final_text": text, "usage":{"in":0,"out":0}},
+            {"type":"assistant.completed","room_seq":_next_seq(),"run_id":run_id,
+            "final_text": final_text, "usage":{"in":0,"out":0}},
             room=ROOM_ID
         )
     except httpx.HTTPStatusError as e:
