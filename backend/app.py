@@ -13,16 +13,25 @@ load_dotenv()
 # Tell Flask where your static files live
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.url_map.strict_slashes = False
+
+# PRODUCTION TODO: Restrict CORS to specific origins instead of allowing all
+# Example: CORS(app, supports_credentials=True, origins=["https://yourdomain.com"])
 CORS(app, supports_credentials=True)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///chatbot.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# PRODUCTION TODO: Set a strong JWT_SECRET_KEY in your .env file
+# Never use the default "hithere" in production - generate a secure random key
+# Example: openssl rand -hex 32
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "hithere")
 
 db.init_app(app)
 jwt = JWTManager(app)
 app.register_blueprint(auth_bp, url_prefix="/api/auth")
 
+# PRODUCTION TODO: Restrict CORS origins for WebSocket connections
+# Example: socketio = SocketIO(app, cors_allowed_origins=["https://yourdomain.com"])
 socketio = SocketIO(app, cors_allowed_origins="*")
 register_socketio(socketio)
 for rule in app.url_map.iter_rules():
@@ -45,5 +54,8 @@ with app.app_context():
     db.create_all()
 
 if __name__ == "__main__":
+    # PRODUCTION TODO: Set debug=False and remove allow_unsafe_werkzeug=True
+    # Use a production WSGI server like gunicorn with eventlet/gevent
+    # Example: gunicorn --worker-class eventlet -w 1 app:app
     socketio.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True,
                  allow_unsafe_werkzeug=True)

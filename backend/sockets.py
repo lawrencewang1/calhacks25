@@ -12,7 +12,13 @@ from models.user import User
 import threading
 
 ROOM_ID = "global"
+
+# PRODUCTION TODO: Add thread locking for room_seq to prevent race conditions
+# Example: room_seq_lock = threading.Lock()
 room_seq = 0
+
+# PRODUCTION TODO: Messages are stored in memory only and will be lost on restart
+# Consider persisting to the Message database model for production
 messages = deque(maxlen=200)     # last N messages for snapshot
 clients = {}                     # sid -> {"name":..., "user_id":...}
 active_runs = {}                 # run_id -> {"stop": False}
@@ -26,10 +32,10 @@ You are a conversational assistant in a group chat with multiple human users. Yo
 Be Context-Aware:
 Pay attention to who is speaking and what they are referring to.
 Reference the correct user when responding.
-Use natural conversational cues like “@Alex” or “Good point, Maya — I think…” when needed.
+Use natural conversational cues like "@Alex" or "Good point, Maya — I think…" when needed.
 
 Respond Naturally and at the Right Time:
-Don’t interrupt active human exchanges.
+Don't interrupt active human exchanges.
 Wait until a user asks a direct question, mentions you, or leaves a gap in conversation.
 You will be referred to as "Assistant", "Chatbot", or "AI".
 Avoid replying to every message; prioritize helpful or relevant responses, UNLESS YOU ARE MENTIONED.
@@ -37,21 +43,27 @@ If no response is needed, reply with exactly "[NO_RESPONSE]".
 
 Be Helpful and Informative:
 Give clear, accurate, and actionable answers.
-When you’re unsure, state your uncertainty politely and suggest how to find the answer.
+When you're unsure, state your uncertainty politely and suggest how to find the answer.
 Keep responses concise unless more depth is explicitly requested.
 
 Maintain Tone and Flow:
-Match the chatroom’s tone — casual if the group is casual, professional if it’s work-related.
+Match the chatroom's tone — casual if the group is casual, professional if it's work-related.
 Encourage positive and inclusive conversation.
-Avoid repeating information that’s already been said.
+Avoid repeating information that's already been said.
 
 Boundaries:
 Never disclose private user data or internal system information.
 Focus on maintaining a cooperative, friendly, and respectful environment.
 """
-ALLOW_GUESTS = os.getenv("ALLOW_GUESTS", "true").lower() == "true" #SET TO FALSE FOR PRODUCTION
+
+# PRODUCTION TODO: Set ALLOW_GUESTS=false in your .env file to require authentication
+ALLOW_GUESTS = os.getenv("ALLOW_GUESTS", "true").lower() == "true"
 
 def _next_seq():
+    # PRODUCTION TODO: Wrap this in a thread lock to prevent race conditions
+    # with room_seq_lock:
+    #     room_seq += 1
+    #     return room_seq
     global room_seq
     room_seq += 1
     return room_seq
@@ -65,6 +77,8 @@ def _snapshot():
     }
 
 def _moderate(text: str) -> bool:
+    # PRODUCTION TODO: Implement proper content moderation
+    # Consider using services like OpenAI Moderation API or similar
     banned = [r"\bslur1\b", r"\bslur2\b"]
     return not any(re.search(p, text, re.I) for p in banned)
 
@@ -136,11 +150,14 @@ def register_socketio(socketio):
             try:
                 u = User.query.get(user_id)
                 if u:
-                    if getattr(u, "email", None):
+                    # Use the user's name from the database
+                    if getattr(u, "name", None):
+                        name = u.name
+                    elif getattr(u, "email", None):
                         name = u.email.split("@")[0]
-                    elif getattr(u, "username", None):
-                        name = u.username
             except Exception:
+                # PRODUCTION TODO: Add proper logging instead of silently passing
+                # logger.warning(f"Failed to fetch user {user_id}: {e}")
                 pass
         elif not ALLOW_GUESTS:
             # Reject unauthenticated sockets
@@ -193,6 +210,10 @@ def register_socketio(socketio):
             }
             seq = _next_seq()
             messages.append(m)
+            # PRODUCTION TODO: Persist message to database here
+            # msg_record = Message(id=m["id"], room_seq=seq, sender=m["sender"], text=m["text"], timestamp=m["ts"])
+            # db.session.add(msg_record)
+            # db.session.commit()
             socketio.emit("server", {"type":"message.appended","room_seq":seq,"message":m}, to=request.sid)
             socketio.emit("server", {"type":"message.appended","room_seq":seq,"message":m}, room=ROOM_ID, skip_sid=request.sid)
             run_id = str(uuid.uuid4())
@@ -270,11 +291,11 @@ def _llm_stream_task(socketio, run_id: str, user_text: str):
                 "final_text":"", "usage":{"in":0,"out":0}},
                 room=ROOM_ID
             )
-            messages.append({"id": str(uuid.uuid4()), "sender":"assistant",
-                            "text": 'pp', "ts": int(time.time()*1000)})
+            # Don't append anything to messages when there's no response
             return
 
         if final_text:
+            # PRODUCTION TODO: Persist assistant message to database here as well
             messages.append({"id": str(uuid.uuid4()), "sender":"assistant",
                             "text": final_text, "ts": int(time.time()*1000)})
 
