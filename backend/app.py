@@ -39,7 +39,8 @@ for rule in app.url_map.iter_rules():
 
 @app.route("/")
 def index():
-    return send_from_directory(app.static_folder, "testWithLogin.html")
+    # return send_from_directory(app.static_folder, "testWithLogin.html")
+    return send_from_directory(app.static_folder, 'login.html')
 
 @app.route("/<path:path>", methods=["GET"], endpoint="spa_fallback")
 def spa_fallback(path):
