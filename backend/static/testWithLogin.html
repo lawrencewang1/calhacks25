@@ -1,0 +1,249 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Multiplayer AI Chat</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    :root { --bg:#0f172a; --fg:#e2e8f0; --muted:#94a3b8; --card:#111827; --acc:#22d3ee; }
+    body { margin:0; font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); color:var(--fg); display:grid; grid-template-rows:auto 1fr auto; height:100vh; }
+    header, footer { padding:10px 12px; background:rgba(255,255,255,0.03); display:flex; gap:12px; align-items:center; }
+    header h1 { font-size:15px; margin:0 8px 0 0; letter-spacing:.5px; }
+    .pill { padding:2px 8px; border-radius:999px; background:#1f2937; color:var(--muted); }
+    #main { display:grid; grid-template-columns: 320px 1fr; height:100%; min-height:0; }
+    #left { border-right:1px solid #1f2937; padding:12px; display:flex; flex-direction:column; gap:10px; }
+    #right { display:flex; flex-direction:column; }
+    .card { background:var(--card); border:1px solid #1f2937; border-radius:12px; padding:10px; }
+    label { display:block; font-size:12px; color:var(--muted); margin:6px 0 4px; }
+    input, button { font:inherit; }
+    input { width:100%; padding:8px 10px; border-radius:8px; border:1px solid #334155; background:#0b1220; color:var(--fg); }
+    button { padding:8px 10px; border-radius:8px; border:1px solid #334155; background:#0b1220; color:var(--fg); cursor:pointer; }
+    button.primary { background:linear-gradient(90deg,#22d3ee,#a78bfa); border:none; color:#001018; font-weight:600; }
+    button.ghost { background:transparent; border:1px dashed #334155; color:var(--muted); }
+    #log { flex:1; overflow:auto; padding:12px; }
+    .msg { margin:4px 0; white-space:pre-wrap; }
+    .user { color:#93c5fd; }
+    .assistant { color:#34d399; }
+    .meta { color:var(--muted); font-size:12px; }
+    #composer { display:flex; gap:8px; padding:10px; border-top:1px solid #1f2937; }
+    #composer input { flex:1; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Multiplayer AI Chat</h1>
+    <span id="status" class="pill">disconnected</span>
+    <span id="users" class="pill">users: 0</span>
+    <span id="origin" class="pill"></span>
+  </header>
+
+  <div id="main">
+    <div id="left">
+      <div class="card">
+        <div style="display:flex; gap:8px; margin-bottom:6px">
+          <button id="asGuest" class="ghost">Use Guest</button>
+          <button id="logout" class="ghost">Logout</button>
+        </div>
+        <div>
+          <label>Email</label>
+          <input id="email" placeholder="you@example.com" />
+          <label>Password</label>
+          <input id="password" type="password" placeholder="••••••••" />
+          <div style="display:flex; gap:8px; margin-top:8px">
+            <button id="register">Register</button>
+            <button id="login" class="primary">Login</button>
+          </div>
+          <div class="meta" id="authMsg" style="margin-top:6px;"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <label>Display name (guest fallback)</label>
+        <input id="displayName" placeholder="anon" />
+        <label>Backend URL</label>
+        <input id="backendUrl" placeholder="(auto)" />
+        <div style="display:flex; gap:8px; margin-top:8px">
+          <button id="connect" class="primary">Connect</button>
+          <button id="disconnect">Disconnect</button>
+        </div>
+        <div class="meta" id="connMsg" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="card">
+        <div class="meta">Tips</div>
+        <div class="meta">
+          • If you’re on a Cloudflare tunnel, leave Backend URL blank and load this page from the tunnel URL.<br/>
+          • After Login, click Connect. JWT is sent in the socket auth payload.<br/>
+          • Use “Use Guest” if auth isn’t ready (server must ALLOW_GUESTS=true).
+        </div>
+      </div>
+    </div>
+
+    <div id="right">
+      <div id="log"></div>
+      <div id="composer">
+        <input id="text" placeholder="Type a message…  (mention the bot with @ai or @Mori)" />
+        <button id="send" class="primary">Send</button>
+        <button id="stop">Stop</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="meta">JWT: <span id="jwtPreview">(none)</span></div>
+  </footer>
+
+<script>
+  // ---------- helpers ----------
+  const $ = (id) => document.getElementById(id);
+  const BACKEND_DEFAULT = window.location.origin; // works when page served by Flask or tunnel
+  $('origin').textContent = BACKEND_DEFAULT.replace(/^https?:\/\//,'');
+
+  let socket = null;
+  let currentRun = null;
+
+  function setStatus(text) { $('status').textContent = text; }
+  function log(line, cls='') {
+    const el = document.createElement('div');
+    el.className = 'msg '+cls;
+    el.textContent = line;
+    $('log').appendChild(el);
+    $('log').scrollTop = $('log').scrollHeight;
+  }
+  function setUsers(n){ $('users').textContent = `users: ${n}`; }
+  function setAuthMsg(t){ $('authMsg').textContent = t || ''; }
+  function setConnMsg(t){ $('connMsg').textContent = t || ''; }
+
+  function getBackendBase() {
+    const custom = $('backendUrl').value.trim();
+    if (custom) return custom.replace(/\/+$/,'');
+    return BACKEND_DEFAULT;
+  }
+
+  function saveToken(t) {
+    if (t) localStorage.setItem('access_token', t);
+    else localStorage.removeItem('access_token');
+    $('jwtPreview').textContent = t ? (t.split('.').length===3 ? t.split('.')[0]+'...'+t.split('.').pop().slice(-6) : '(not a jwt)') : '(none)';
+  }
+  saveToken(localStorage.getItem('access_token'));
+
+  // ---------- auth actions ----------
+  $('register').onclick = async () => {
+    const base = getBackendBase();
+    const email = $('email').value.trim();
+    const password = $('password').value;
+    if (!email || !password) return setAuthMsg('Email & password required.');
+    try {
+      const r = await fetch(`${base}/api/auth/register`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ email, password })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.msg || JSON.stringify(j));
+      setAuthMsg('Registered. Now login.');
+    } catch (e) {
+      setAuthMsg('Register error: '+e.message);
+    }
+  };
+
+  $('login').onclick = async () => {
+    const base = getBackendBase();
+    const email = $('email').value.trim();
+    const password = $('password').value;
+    if (!email || !password) return setAuthMsg('Email & password required.');
+    try {
+      const r = await fetch(`${base}/api/auth/login`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ email, password })
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.msg || JSON.stringify(j));
+      if (!j.access_token) throw new Error('No access_token in response');
+      saveToken(j.access_token);
+      setAuthMsg('Logged in.');
+    } catch (e) { setAuthMsg('Login error: '+e.message); }
+  };
+
+  $('logout').onclick = () => { saveToken(null); setAuthMsg('Logged out.'); };
+
+  $('asGuest').onclick = () => {
+    saveToken(null);
+    $('displayName').value ||= 'guest';
+    setAuthMsg('Guest mode. (Server must ALLOW_GUESTS=true)');
+  };
+
+  // ---------- socket ----------
+  function connectSocket() {
+    if (socket) socket.disconnect();
+    const base = getBackendBase();
+    const token = localStorage.getItem('access_token') || null;
+    const name = $('displayName').value.trim() || 'anon';
+
+    setConnMsg('');
+    setStatus('connecting…');
+
+    socket = io(base, {
+      auth: { token, name },
+      transports: ['websocket', 'polling'],
+      path: '/socket.io'
+    });
+
+    socket.on('connect', () => { setStatus('connected'); });
+    socket.on('disconnect', () => { setStatus('disconnected'); setUsers(0); });
+
+    socket.on('server', (m) => {
+      switch(m.type) {
+        case 'room.snapshot':
+          setUsers(m.users.length);
+          $('log').textContent = '';
+          m.messages.forEach(x => log(`${x.sender}> ${x.text}`, x.sender==='assistant'?'assistant':'user'));
+          break;
+        case 'user.joined':
+          setUsers(m.count); log(`* ${m.user.name} joined`, 'meta'); break;
+        case 'user.left':
+          setUsers(m.count); log(`* user left`, 'meta'); break;
+        case 'message.appended':
+          log(`${m.message.sender}> ${m.message.text}`, m.message.sender==='assistant'?'assistant':'user'); break;
+        case 'assistant.started':
+          currentRun = m.run.run_id; log(`assistant> `, 'assistant'); break;
+        case 'assistant.delta':
+          // update last line by appending delta
+          const logEl = $('log').lastElementChild;
+          if (logEl) logEl.textContent = logEl.textContent + m.delta;
+          break;
+        case 'assistant.completed':
+          currentRun = null; break;
+        case 'error':
+          log(`! error: ${m.message}`, 'meta'); break;
+      }
+    });
+
+    socket.on('connect_error', (err) => {
+      setConnMsg('connect_error: ' + err.message);
+      setStatus('disconnected');
+    });
+  }
+
+  $('connect').onclick = connectSocket;
+  $('disconnect').onclick = () => { if (socket) socket.disconnect(); };
+
+  // send / stop
+  $('send').onclick = () => {
+    if (!socket || socket.disconnected) return setConnMsg('Not connected.');
+    const text = $('text').value.trim(); if (!text) return;
+    socket.emit('client', { type:'send.message', client_msg_id: crypto.randomUUID(), text });
+    $('text').value = '';
+  };
+  $('stop').onclick = () => {
+    if (!socket || socket.disconnected || !currentRun) return;
+    socket.emit('client', { type:'run.stop', run_id: currentRun });
+  };
+
+  // convenience: auto-connect if serving same-origin
+  window.addEventListener('load', () => {
+    $('backendUrl').placeholder = BACKEND_DEFAULT;
+  });
+</script>
+</body>
+</html>

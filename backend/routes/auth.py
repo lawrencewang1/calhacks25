@@ -1,3 +1,4 @@
+# routes/auth.py
 from flask import Blueprint, request, jsonify
 from models.user import User
 from database import db
@@ -22,7 +23,12 @@ def register():
     db.session.add(user)
     db.session.commit()
 
-    return jsonify({"msg": "registered successfully"}), 201
+    # auto-login on register (makes demo smoother)
+    access_token = create_access_token(identity=user.id)
+    return jsonify({
+        "access_token": access_token,
+        "user": {"id": user.id, "email": user.email}
+    }), 201
 
 @auth_bp.route("/login", methods=["POST"])
 def login():
@@ -34,5 +40,8 @@ def login():
     if not user or not user.check_password(password):
         return jsonify({"msg": "invalid credentials"}), 401
 
-    token = create_access_token(identity=user.id)
-    return jsonify({"token": token})
+    access_token = create_access_token(identity=user.id)
+    return jsonify({
+        "access_token": access_token,
+        "user": {"id": user.id, "email": user.email}
+    })

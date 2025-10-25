@@ -26,7 +26,7 @@ register_socketio(socketio)
 
 @app.route("/")
 def index():
-    return app.send_static_file("test.html")
+    return app.send_static_file("testWithLogin.html")
 
 @app.route("/<path:path>")
 def static_proxy(path):
