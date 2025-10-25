@@ -7,37 +7,47 @@
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <style>
     :root { --bg:#0f172a; --fg:#e2e8f0; --muted:#94a3b8; --card:#111827; --acc:#22d3ee; }
-    body { margin:0; font:14px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--fg); display:grid; grid-template-rows:auto 1fr auto; height:100vh; }
+    body { margin:0; font:14px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--fg); display:flex; flex-direction:column; align-items:center; height:100vh; }
+    .container { display:grid; grid-template-rows:auto 1fr auto; height:100vh; width:100%; max-width:1200px; }
     header, footer { padding:10px; background:rgba(255,255,255,0.03); display:flex; gap:12px; align-items:center; }
+    footer { overflow:hidden; }
+    footer .meta { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
     header h1 { margin:0; font-size:15px; }
     #log { flex:1; overflow:auto; padding:12px; }
     .msg { margin:4px 0; white-space:pre-wrap; }
     .user { color:#93c5fd; }
     .assistant { color:#34d399; }
-    #composer { display:flex; gap:8px; padding:10px; border-top:1px solid #1f2937; }
+    .meta { color:var(--muted); font-style:italic; }
+    #composer { display:flex; gap:8px; padding:10px; border-top:1px solid #1f2937; align-items:center; }
     #composer input { flex:1; padding:8px; border-radius:8px; border:1px solid #334155; background:#0b1220; color:var(--fg); }
     #composer button { padding:8px; border-radius:8px; border:1px solid #334155; background:#0b1220; color:var(--fg); cursor:pointer; }
     button.primary { background:linear-gradient(90deg,#22d3ee,#a78bfa); border:none; color:#001018; font-weight:600; }
+    .char-count { font-size:12px; color:var(--muted); min-width:60px; text-align:center; }
+    .char-count.warning { color:#fbbf24; }
+    .char-count.error { color:#f87171; }
   </style>
 </head>
 <body>
-<header>
-  <h1>Multiplayer AI Chat</h1>
-  <span id="status">disconnected</span>
-  <span id="users">users: 0</span>
-</header>
+<div class="container">
+  <header>
+    <h1>Multiplayer AI Chat</h1>
+    <span id="status">disconnected</span>
+    <span id="users">users: 0</span>
+  </header>
 
-<div id="log"></div>
+  <div id="log"></div>
 
-<div id="composer">
-  <input id="text" placeholder="Type a message… (mention the bot with @ai)" />
-  <button id="send" class="primary">Send</button>
-  <button id="stop">Stop</button>
+  <div id="composer">
+    <input id="text" placeholder="Type a message… (mention the bot with @ai)" maxlength="500" autofocus />
+    <span id="charCount" class="char-count">0/500</span>
+    <button id="send" class="primary">Send</button>
+    <button id="stop">Stop</button>
+  </div>
+
+  <footer>
+    <div class="meta">JWT: <span id="jwtPreview">(none)</span></div>
+  </footer>
 </div>
-
-<footer>
-  <div class="meta">JWT: <span id="jwtPreview">(none)</span></div>
-</footer>
 
 <script>
 const $ = id=>document.getElementById(id);
@@ -47,25 +57,43 @@ $('jwtPreview').textContent = localStorage.getItem('access_token') || '(none)';
 let socket=null, currentRun=null;
 
 function log(line, cls=''){ const el=document.createElement('div'); el.className='msg '+cls; el.textContent=line; $('log').appendChild(el); $('log').scrollTop=$('log').scrollHeight; }
+function formatSender(sender){ return sender.startsWith('user:') ? sender.substring(5) : sender; }
 function setUsers(n){ $('users').textContent = `users: ${n}`; }
 function setStatus(t){ $('status').textContent = t; }
 
 function connectSocket(){
   const token = localStorage.getItem('access_token') || null;
-  const name = localStorage.getItem('display_name') || 'anon';
-  socket = io(BACKEND_DEFAULT, { auth:{token,name}, transports:['websocket','polling'] });
-  socket.on('connect',()=>setStatus('connected'));
-  socket.on('disconnect',()=>{ setStatus('disconnected'); setUsers(0); });
+  console.log('Attempting to connect with token:', token ? token.substring(0, 20) + '...' : 'null');
+  if(!token){
+    setStatus('not authenticated');
+    log('! No access token found. Please login.','meta');
+    return;
+  }
+  socket = io(BACKEND_DEFAULT, { auth:{token}, transports:['websocket','polling'] });
+  socket.on('connect',()=>{
+    console.log('Socket connected successfully');
+    setStatus('connected');
+  });
+  socket.on('disconnect',()=>{
+    console.log('Socket disconnected');
+    setStatus('disconnected');
+    setUsers(0);
+  });
+  socket.on('connect_error',(err)=>{
+    console.error('Socket connection error:', err);
+    setStatus('connection error');
+    log(`! Connection error: ${err.message}. Check browser console for details.`,'meta');
+  });
   socket.on('server', m=>{
     switch(m.type){
       case 'room.snapshot':
         setUsers(m.users.length);
         $('log').textContent='';
-        m.messages.forEach(x=>log(`${x.sender}> ${x.text}`, x.sender==='assistant'?'assistant':'user'));
+        m.messages.forEach(x=>log(`${formatSender(x.sender)}> ${x.text}`, x.sender==='assistant'?'assistant':'user'));
         break;
       case 'user.joined': setUsers(m.count); log(`* ${m.user.name} joined`,'meta'); break;
       case 'user.left': setUsers(m.count); log('* user left','meta'); break;
-      case 'message.appended': log(`${m.message.sender}> ${m.message.text}`, m.message.sender==='assistant'?'assistant':'user'); break;
+      case 'message.appended': log(`${formatSender(m.message.sender)}> ${m.message.text}`, m.message.sender==='assistant'?'assistant':'user'); break;
       case 'assistant.delta':
         const logEl=$('log').lastElementChild;
         if(logEl)logEl.textContent+=m.delta;
@@ -76,10 +104,41 @@ function connectSocket(){
   });
 }
 
-$('send').onclick=()=>{ if(!socket||socket.disconnected)return; const t=$('text').value.trim(); if(!t)return; socket.emit('client',{type:'send.message',client_msg_id:crypto.randomUUID(),text:t}); $('text').value=''; };
-$('stop').onclick=()=>{ if(!socket||socket.disconnected||!currentRun)return; socket.emit('client',{type:'run.stop',run_id:currentRun}); };
+function updateCharCount(){
+  const text = $('text').value;
+  const count = text.length;
+  const max = 500;
+  const counter = $('charCount');
+  counter.textContent = `${count}/${max}`;
 
-window.addEventListener('load',connectSocket);
+  // Change color based on remaining characters
+  counter.classList.remove('warning', 'error');
+  if(count > max * 0.9){
+    counter.classList.add('error');
+  } else if(count > max * 0.7){
+    counter.classList.add('warning');
+  }
+}
+
+function sendMessage(){
+  if(!socket||socket.disconnected)return;
+  const t=$('text').value.trim();
+  if(!t)return;
+  socket.emit('client',{type:'send.message',client_msg_id:crypto.randomUUID(),text:t});
+  $('text').value='';
+  updateCharCount();
+  $('text').focus();
+}
+
+$('send').onclick=sendMessage;
+$('stop').onclick=()=>{ if(!socket||socket.disconnected||!currentRun)return; socket.emit('client',{type:'run.stop',run_id:currentRun}); };
+$('text').addEventListener('keydown',(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendMessage(); }});
+$('text').addEventListener('input', updateCharCount);
+
+window.addEventListener('load',()=>{
+  connectSocket();
+  updateCharCount();
+});
 </script>
 </body>
 </html>

@@ -32,8 +32,8 @@ app.register_blueprint(auth_bp, url_prefix="/api/auth")
 
 # PRODUCTION TODO: Restrict CORS origins for WebSocket connections
 # Example: socketio = SocketIO(app, cors_allowed_origins=["https://yourdomain.com"])
-socketio = SocketIO(app, cors_allowed_origins="*")
-register_socketio(socketio)
+socketio = SocketIO(app, cors_allowed_origins="*", manage_session=False)
+register_socketio(socketio, app)
 for rule in app.url_map.iter_rules():
     print(f"{rule.rule:35s}  {','.join(sorted(rule.methods))}  -> {rule.endpoint}")
 

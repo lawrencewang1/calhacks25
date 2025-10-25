@@ -56,8 +56,8 @@ Never disclose private user data or internal system information.
 Focus on maintaining a cooperative, friendly, and respectful environment.
 """
 
-# PRODUCTION TODO: Set ALLOW_GUESTS=false in your .env file to require authentication
-ALLOW_GUESTS = os.getenv("ALLOW_GUESTS", "true").lower() == "true"
+# Guest access disabled - authentication required
+ALLOW_GUESTS = False
 
 def _next_seq():
     # PRODUCTION TODO: Wrap this in a thread lock to prevent race conditions
@@ -112,14 +112,29 @@ def _parse_sse_chunk(raw: str):
         except json.JSONDecodeError:
             continue
 
-def _safe_decode_jwt(token: str):
-    if not token or token.count(".") != 2:
+def _safe_decode_jwt_with_app(token: str, app):
+    if not token:
+        print("No token provided")
+        return None
+    if token.count(".") != 2:
+        print(f"Invalid token format (expected 2 dots, got {token.count('.')})")
         return None
     try:
-        return decode_token(token)
-    except (JWTExtendedException, InvalidTokenError, DecodeError):
+        # Ensure we're in the app context for JWT decoding
+        with app.app_context():
+            print(f"Attempting to decode token...")
+            claims = decode_token(token)
+            print(f"Successfully decoded token. Claims: {claims}")
+            return claims
+    except (JWTExtendedException, InvalidTokenError, DecodeError) as e:
+        print(f"JWT decode error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
-    except Exception:
+    except Exception as e:
+        print(f"Unexpected JWT decode error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
     
 def _build_chat(user_text: str):
@@ -134,33 +149,48 @@ def _build_chat(user_text: str):
     chat.append({"role":"user","content": user_text})
     return chat
 
-def register_socketio(socketio):
+def register_socketio(socketio, app):
     @socketio.on("connect")
     def _on_connect(auth):
-        print("WS connect:", {"sid": request.sid, "auth": bool(auth)})
+        print("WS connect:", {"sid": request.sid, "auth": auth})
         # auth is a dict sent by the client: { token, name? }
         token = (auth or {}).get("token")
         name  = ((auth or {}).get("name") or "anon")[:24]
 
+        print(f"Token present: {bool(token)}, Token value: {token[:20] if token else 'None'}...")
+
         user_id = None
-        claims = _safe_decode_jwt(token)
+        claims = _safe_decode_jwt_with_app(token, app)
+        print(f"JWT claims decoded: {claims}")
+
         if claims:
             user_id = claims.get("sub") or claims.get("identity")
+            print(f"User ID from JWT: {user_id}")
             # Optional: look up display name from DB
             try:
-                u = User.query.get(user_id)
+                # Convert user_id to int for database query
+                user_id_int = int(user_id) if user_id else None
+                u = User.query.get(user_id_int)
                 if u:
                     # Use the user's name from the database
                     if getattr(u, "name", None):
                         name = u.name
                     elif getattr(u, "email", None):
                         name = u.email.split("@")[0]
-            except Exception:
+                    print(f"User found in DB: {name}")
+                else:
+                    print(f"User ID {user_id} not found in database")
+            except ValueError as e:
+                print(f"Invalid user ID format: {user_id} - {e}")
+                pass
+            except Exception as e:
+                print(f"Error fetching user from DB: {e}")
                 # PRODUCTION TODO: Add proper logging instead of silently passing
                 # logger.warning(f"Failed to fetch user {user_id}: {e}")
                 pass
         elif not ALLOW_GUESTS:
             # Reject unauthenticated sockets
+            print(f"Connection rejected: ALLOW_GUESTS={ALLOW_GUESTS}, claims={claims}")
             return False  # tells Socket.IO to refuse the connection
 
         # Accept connection

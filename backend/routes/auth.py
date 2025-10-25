@@ -55,7 +55,7 @@ def register():
     #     return jsonify({"msg": "registration failed"}), 500
     db.session.commit()
 
-    token = create_access_token(identity=u.id)
+    token = create_access_token(identity=str(u.id))
     return jsonify({"access_token": token, "user": {"id": u.id, "email": u.email, "name": u.name}}), 201
 
 @auth_bp.post("/login")
@@ -67,7 +67,5 @@ def login():
         # PRODUCTION TODO: Add rate limiting to prevent brute force attacks
         # Consider using Flask-Limiter or similar
         return jsonify({"msg": "invalid credentials"}), 401
-    token = create_access_token(identity=u.id)
-    # PRODUCTION TODO: Consider including user name in login response for consistency with register
-    # return jsonify({"access_token": token, "user": {"id": u.id, "email": u.email, "name": u.name}})
-    return jsonify({"access_token": token, "user": {"id": u.id, "email": u.email}})
+    token = create_access_token(identity=str(u.id))
+    return jsonify({"access_token": token, "user": {"id": u.id, "email": u.email, "name": u.name}})
