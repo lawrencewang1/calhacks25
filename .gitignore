@@ -1,2 +1,4 @@
 .env
 /ch25env
+/backend/instance
+__pycache__
