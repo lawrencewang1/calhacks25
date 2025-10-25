@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8" />
+<title>Chat Demo</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<div id="who"></div><pre id="log"></pre>
+<input id="name" placeholder="name (optional)" />
+<input id="token" placeholder="paste JWT (optional)" />
+<input id="text" placeholder="Say something…" /><button id="send">Send</button><button id="stop">Stop</button>
+<script>
+ const s = io({ path: "/socket.io" });
+ let currentRun = null;
+ function line(t){ const el=document.getElementById('log'); el.textContent += t+"\n"; el.scrollTop=el.scrollHeight; }
+ s.on("connect", ()=> {
+   s.emit("client",{type:"join", name: document.getElementById("name").value || "anon", token: document.getElementById("token").value || null});
+ });
+ s.on("server", (m)=>{
+   if(m.type==="room.snapshot"){ document.getElementById('who').textContent=`Users: ${m.users.length}`; m.messages.forEach(x=>line(`${x.sender}> ${x.text}`)); }
+   if(m.type==="user.joined"){ document.getElementById('who').textContent=`Users: ${m.count}`; line(`* ${m.user.name} joined`); }
+   if(m.type==="user.left"){ document.getElementById('who').textContent=`Users: ${m.count}`; }
+   if(m.type==="message.appended"){ line(`${m.message.sender}> ${m.message.text}`); }
+   if(m.type==="assistant.started"){ currentRun=m.run.run_id; line(`assistant> `); }
+   if(m.type==="assistant.delta"){ const log=document.getElementById('log'); log.textContent=log.textContent.replace(/\n$/,"")+m.delta+"\n"; }
+   if(m.type==="assistant.completed"){ currentRun=null; }
+   if(m.type==="error"){ line(`! error: ${m.message}`); }
+ });
+ document.getElementById('send').onclick=()=>{
+   const text=document.getElementById('text').value.trim(); if(!text) return;
+   s.emit("client",{type:"send.message", client_msg_id:crypto.randomUUID(), text}); document.getElementById('text').value="";
+ };
+ document.getElementById('stop').onclick=()=>{ if(currentRun) s.emit("client",{type:"run.stop", run_id: currentRun}); };
+</script>
