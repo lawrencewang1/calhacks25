@@ -1,13 +1,3 @@
-"""
-WebSocket handlers for real-time chat functionality.
-
-This module handles all Socket.IO events including:
-- Client connections and authentication
-- Message sending and receiving
-- AI assistant integration
-- User presence tracking
-"""
-
 import json
 import time
 import uuid
@@ -247,7 +237,6 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
     llm_api_url = app.config.get("LLM_API_URL", "")
 
     try:
-        # 1) Try streaming (SSE)
         with httpx.stream(
             "POST", llm_api_url, headers=_headers(app),
             json=_payload(_build_chat(user_text, app), app), timeout=60.0
