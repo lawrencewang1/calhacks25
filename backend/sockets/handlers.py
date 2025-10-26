@@ -282,7 +282,9 @@ def _should_bot_respond(user_text: str, user_name: str, app) -> bool:
     """
     Determine if the bot should respond to a message.
 
-    Uses heuristics and conversation context to decide if Midori should respond.
+    Uses LLM API call with conversation context to intelligently decide
+    if Midori should respond. Considers recent conversation history and
+    whether Midori was recently active.
 
     Args:
         user_text: The user's message text
@@ -294,66 +296,102 @@ def _should_bot_respond(user_text: str, user_name: str, app) -> bool:
     """
     text_lower = user_text.lower()
 
-    # Always respond if directly mentioned
-    mentions = ['@midori', '@ai', 'midori', 'hey midori', 'hi midori']
+    # Fast path: Always respond if directly mentioned by name or tag
+    mentions = ['@midori', '@ai']
     if any(mention in text_lower for mention in mentions):
+        print(f"Bot responding: directly mentioned")
         return True
 
-    # Check for direct request phrases
-    request_phrases = ['could you', 'can you', 'would you', 'will you', 'please help', 'help me']
-    if any(phrase in text_lower for phrase in request_phrases):
-        return True
+    # Build conversation context for LLM
+    recent = list(messages)[-6:]  # Last 6 messages for context
+    conversation_history = []
 
-    # Get recent context
-    recent = list(messages)[-5:]  # Look at last 5 messages for better context
+    for msg in recent:
+        sender = msg.get('sender', 'unknown')
+        # Format sender nicely
+        if sender == 'assistant':
+            formatted_sender = 'Midori (AI assistant)'
+        elif sender.startswith('user:'):
+            formatted_sender = sender[5:]  # Remove 'user:' prefix
+        else:
+            formatted_sender = sender
 
-    # Check if bot was recently active (last message or second-to-last was from assistant)
-    bot_recently_active = False
-    if recent:
-        last_sender = recent[-1].get('sender', '') if len(recent) >= 1 else ''
-        second_last_sender = recent[-2].get('sender', '') if len(recent) >= 2 else ''
+        conversation_history.append(f"{formatted_sender}: {msg.get('text', '')}")
 
-        bot_recently_active = (last_sender == 'assistant' or second_last_sender == 'assistant')
+    # Check if bot was recently active
+    bot_recently_active = any(msg.get('sender') == 'assistant' for msg in recent[-3:])
 
-    # If bot was recently active and user asks a question, it's likely a follow-up
-    if bot_recently_active and '?' in user_text:
-        print(f"Bot responding to follow-up question after recent activity")
-        return True
+    # Check if Midori just asked a question
+    midori_just_asked = False
+    if recent and recent[-1].get('sender') == 'assistant':
+        last_bot_msg = recent[-1].get('text', '')
+        midori_just_asked = '?' in last_bot_msg
 
-    # Check for question patterns
-    if '?' in user_text:
-        # Count recent messages from users vs assistant
-        recent_user_msgs = [m for m in recent[-3:] if m.get('sender', '').startswith('user:')]
-        recent_assistant_msgs = [m for m in recent[-3:] if m.get('sender') == 'assistant']
+    context_str = '\n'.join(conversation_history) if conversation_history else '(No recent messages)'
 
-        # If there are recent assistant messages, more likely to be relevant
-        if len(recent_assistant_msgs) > 0:
-            return True
+    # Use LLM to make decision
+    try:
+        # Build adaptive guidelines based on context
+        guidelines = [
+            "- RESPOND if the message is a question or request",
+            "- RESPOND if it's a follow-up to something Midori said or asked",
+            "- RESPOND to emotional statements (loneliness, sadness, excitement) as people want engagement",
+            "- RESPOND to statements that seem directed at the group when no one else has responded"
+        ]
 
-        # If it's just users talking to each other (2+ user messages in a row), skip
-        if len(recent_user_msgs) >= 2 and len(recent_assistant_msgs) == 0:
-            # Check if messages are short and conversational
-            avg_length = sum(len(m.get('text', '').split()) for m in recent_user_msgs) / len(recent_user_msgs)
-            if avg_length <= 5:
-                return False
+        if bot_recently_active:
+            guidelines.insert(0, "- IMPORTANT: Midori was just active, so this is likely a follow-up → RESPOND unless it's clearly directed at another user")
 
-        # Otherwise, respond to questions
-        return True
+        if midori_just_asked:
+            guidelines.insert(0, "- CRITICAL: Midori just asked a question, and this is the user's response → DEFINITELY RESPOND")
 
-    # If message is very short and conversational between users, don't respond
-    if len(user_text.split()) <= 3:
-        recent_user_only = [m for m in recent[-3:] if m.get('sender', '').startswith('user:')]
-        if len(recent_user_only) >= 2:
-            # Short messages between users, probably chatting
+        guidelines.extend([
+            "- DON'T respond if users are greeting each other specifically (like 'hey John!')",
+            "- DON'T respond if two specific users are having a 1-on-1 conversation",
+            "- When uncertain, lean towards RESPONDING to keep the conversation alive"
+        ])
+
+        decision_prompt = f"""You are deciding if Midori (an AI assistant) should respond in a group chat.
+
+CURRENT MESSAGE:
+{user_name}: "{user_text}"
+
+RECENT CONVERSATION:
+{context_str}
+
+GUIDELINES:
+{chr(10).join(guidelines)}
+
+Should Midori respond?
+Reply with ONLY: YES or NO"""
+
+        with httpx.Client() as client:
+            resp = client.post(
+                app.config.get("LLM_API_URL", ""),
+                headers=_headers(app),
+                json={
+                    "messages": [{"role": "user", "content": decision_prompt}],
+                    "max_tokens": 100,
+                    "stream": False,
+                    "temperature": 0.2  # Lower temperature for more consistent decisions
+                },
+                timeout=5.0
+            )
+            resp.raise_for_status()
+
+            body = resp.json()
+            decision = _extract_text_from_obj(body).strip().upper()
+
+            should_respond = "YES" in decision
+            print(f"Bot decision for '{user_text[:50]}...': {decision} -> {should_respond}")
+            return should_respond
+
+    except Exception as e:
+        print(f"Error in response decision: {e}, defaulting to lenient response")
+        # More lenient default: respond to most things except very short messages
+        if len(user_text.split()) <= 2 and '?' not in user_text:
             return False
-
-    # Check for conversational continuity (references to previous topic)
-    if bot_recently_active and len(user_text.split()) > 5:
-        # Longer message after bot was active, likely continuing the conversation
-        return True
-
-    # Default to not responding for unclear cases
-    return False
+        return True  # Default to responding
 
 
 def _llm_stream_task(socketio, run_id: str, user_text: str, app):
