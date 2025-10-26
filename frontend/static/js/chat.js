@@ -24,6 +24,12 @@ let currentRoomOwnerId = null; // Current room owner ID
 let selectedUserId = null; // Selected user for modal
 let selectedUserName = null; // Selected user name for modal
 
+// Connection retry state
+let retryAttempt = 0; // Current retry attempt
+let maxRetries = 10; // Maximum retry attempts
+let retryTimeout = null; // Retry timeout handle
+let isManualDisconnect = false; // Flag for intentional disconnects
+
 /**
  * Get URL parameter by name.
  * @param {string} name - Parameter name
@@ -793,6 +799,51 @@ function sendMessage() {
 }
 
 /**
+ * Calculate retry delay with exponential backoff.
+ * @param {number} attempt - Current retry attempt number
+ * @returns {number} - Delay in milliseconds
+ */
+function getRetryDelay(attempt) {
+  // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
+  return Math.min(1000 * Math.pow(2, attempt), 30000);
+}
+
+/**
+ * Attempt to reconnect with exponential backoff.
+ */
+function attemptReconnect() {
+  if (retryAttempt >= maxRetries) {
+    console.error('Max reconnection attempts reached');
+    setStatus('connection failed');
+    log('! Unable to connect. Please check your connection and refresh the page.', 'meta');
+    return;
+  }
+
+  const delay = getRetryDelay(retryAttempt);
+  retryAttempt++;
+
+  console.log(`Reconnection attempt ${retryAttempt}/${maxRetries} in ${delay}ms`);
+  setStatus(`reconnecting (${retryAttempt}/${maxRetries})`);
+  log(`! Reconnecting in ${delay / 1000}s (attempt ${retryAttempt}/${maxRetries})...`, 'meta');
+
+  retryTimeout = setTimeout(() => {
+    console.log('Attempting reconnection...');
+    connectSocket();
+  }, delay);
+}
+
+/**
+ * Reset retry state after successful connection.
+ */
+function resetRetryState() {
+  retryAttempt = 0;
+  if (retryTimeout) {
+    clearTimeout(retryTimeout);
+    retryTimeout = null;
+  }
+}
+
+/**
  * Connect to the WebSocket server.
  */
 function connectSocket() {
@@ -802,35 +853,91 @@ function connectSocket() {
   if (!token) {
     setStatus('not authenticated');
     log('! No access token found. Please login.', 'meta');
+    // Redirect to login only if no token exists
+    setTimeout(() => {
+      window.location.href = 'login.html';
+    }, 2000);
     return;
   }
 
+  // If we already have a socket, disconnect it first
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+  }
+
+  // Configure Socket.IO for Cloudflare Tunnel compatibility
   socket = io(BACKEND_DEFAULT, {
     auth: {token},
-    transports: ['websocket', 'polling']
+    // Use polling first, then upgrade to WebSocket if possible
+    // This works better with Cloudflare tunnels
+    transports: ['polling', 'websocket'],
+    upgrade: true,  // Allow upgrade from polling to WebSocket
+    reconnection: false, // We'll handle reconnection manually
+    // Additional options for tunnel compatibility
+    forceNew: true,  // Force new connection
+    timeout: 10000,  // 10 second timeout
+    // Add path if needed
+    path: '/socket.io/'
   });
 
   socket.on('connect', () => {
     console.log('Socket connected successfully');
     mySocketId = socket.id; // Store our socket ID
     setStatus('connected');
+    resetRetryState(); // Reset retry counter on successful connection
+
+    // Clear any "reconnecting" messages
+    const metaMessages = document.querySelectorAll('.chat-log .meta');
+    metaMessages.forEach(msg => {
+      if (msg.textContent.includes('Reconnecting') || msg.textContent.includes('Connection error')) {
+        msg.remove();
+      }
+    });
+
+    log('✓ Connected to server', 'meta');
   });
 
-  socket.on('disconnect', () => {
-    console.log('Socket disconnected');
+  socket.on('disconnect', (reason) => {
+    console.log('Socket disconnected:', reason);
     setStatus('disconnected');
     setUsers(0);
-    currentRoomId = null;
-    $('currentRoomName').textContent = '';
+
+    // Don't clear room info immediately - we might reconnect
+    if (!isManualDisconnect) {
+      log('! Disconnected from server. Attempting to reconnect...', 'meta');
+      attemptReconnect();
+    }
   });
 
   socket.on('connect_error', (err) => {
     console.error('Socket connection error:', err);
+    console.error('Error details:', {
+      message: err.message,
+      description: err.description,
+      context: err.context,
+      type: err.type
+    });
     setStatus('connection error');
-    log(`! Connection error: ${err.message}. Redirecting to login.`, 'meta');
-    setTimeout(() => {
-      window.location.href = 'login.html';
-    }, 1000);
+
+    // Check if it's an authentication error
+    if (err.message && (err.message.includes('authentication') || err.message.includes('jwt') || err.message.includes('token'))) {
+      console.error('Authentication error - token may be invalid or expired');
+      log('! Authentication failed. Your session may have expired. Redirecting to login...', 'meta');
+
+      // Clear invalid token
+      saveToken(null);
+
+      // Redirect to login after a short delay
+      setTimeout(() => {
+        window.location.href = 'login.html';
+      }, 2000);
+    } else {
+      // Network error - attempt reconnection
+      const errorMsg = err.message || 'Unknown error';
+      log(`! Connection error: ${errorMsg}. Retrying with different transport...`, 'meta');
+      attemptReconnect();
+    }
   });
 
   socket.on('server', m => {

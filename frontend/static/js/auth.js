@@ -20,6 +20,7 @@ function setAuthMsg(t, isError = false) {
 async function doLogin() {
   const email = $('email').value.trim();
   const password = $('password').value;
+  const rememberMe = $('rememberMe') ? $('rememberMe').checked : true;
 
   if (!email || !password) {
     return setAuthMsg('Email & password required.', true);
@@ -33,7 +34,16 @@ async function doLogin() {
       throw new Error('No access_token');
     }
 
-    saveToken(token);
+    // Save token with appropriate duration based on "remember me"
+    if (rememberMe) {
+      // Save to cookie for 30 days
+      setCookie('access_token', token, 30);
+      localStorage.setItem('access_token', token);
+    } else {
+      // Save only to localStorage (session only - will be cleared when browser closes)
+      localStorage.setItem('access_token', token);
+    }
+
     setAuthMsg('Logged in. Redirecting...');
 
     // Redirect to chat page
@@ -63,8 +73,8 @@ async function doRegister() {
     return setAuthMsg('Passwords do not match.', true);
   }
 
-  if (password.length < 6) {
-    return setAuthMsg('Password must be at least 6 characters.', true);
+  if (password.length < 12) {
+    return setAuthMsg('Password must be at least 12 characters with uppercase, lowercase, digit, and special character.', true);
   }
 
   try {

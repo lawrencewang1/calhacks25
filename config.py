@@ -133,9 +133,25 @@ class DevelopmentConfig(Config):
     # More verbose logging in development
     LOG_LEVEL = "DEBUG"
 
-    # Allow all CORS origins in development
-    CORS_ORIGINS = ["*"]
-    SOCKETIO_CORS_ALLOWED_ORIGINS = "*"
+    # CORS Configuration for development
+    # Read from environment variable at class definition time
+    # Note: When using credentials, cannot use wildcard "*"
+    # Must specify explicit origins (including localhost and tunnel URLs)
+    _cors_env = os.getenv("CORS_ORIGINS", "")
+    if _cors_env:
+        # Use origins from environment variable (strip whitespace from each)
+        CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
+    else:
+        # Default development origins (localhost + common ports)
+        CORS_ORIGINS = [
+            "http://localhost:5000",
+            "http://127.0.0.1:5000",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+
+    # SocketIO uses the same origins as CORS
+    SOCKETIO_CORS_ALLOWED_ORIGINS = CORS_ORIGINS
 
     # Development defaults for secrets (override parent validation)
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-" + "x"*48)

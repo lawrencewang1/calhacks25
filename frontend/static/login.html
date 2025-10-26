@@ -14,6 +14,12 @@
     <input id="email" type="email" placeholder="you@example.com" autofocus />
     <label>Password</label>
     <input id="password" type="password" placeholder="••••••••" />
+
+    <div style="display: flex; align-items: center; margin: 0.5rem 0;">
+      <input id="rememberMe" type="checkbox" checked style="margin-right: 0.5rem;" />
+      <label for="rememberMe" style="margin: 0; cursor: pointer;">Remember me for 30 days</label>
+    </div>
+
     <button id="login" class="primary">Login</button>
 
     <div class="meta" id="authMsg"></div>
@@ -25,10 +31,42 @@
   <script src="js/utils.js"></script>
   <script src="js/auth.js"></script>
   <script>
+    // Check for existing token and auto-login
+    (async function checkAutoLogin() {
+      const token = getToken();
+      if (token) {
+        setAuthMsg('Checking existing session...');
+        try {
+          // Verify token is still valid by making a request
+          const response = await postJSON(`${BACKEND_DEFAULT}/api/auth/profile`, null, 'GET');
+          if (response && response.user) {
+            setAuthMsg('Session valid! Redirecting...');
+            setTimeout(() => {
+              window.location.href = 'chat.html';
+            }, 500);
+            return;
+          }
+        } catch (e) {
+          // Token is invalid or expired, clear it
+          console.log('Existing token invalid:', e.message);
+          saveToken(null);
+          setAuthMsg('Session expired. Please login again.', true);
+        }
+      }
+    })();
+
     // Set up login button
     $('login').onclick = doLogin;
 
-    // Allow Enter key to submit
+    // Allow Enter key to submit on email field
+    $('email').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        $('password').focus();
+      }
+    });
+
+    // Allow Enter key to submit on password field
     $('password').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();

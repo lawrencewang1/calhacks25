@@ -19,6 +19,9 @@
 
       <label>Password</label>
       <input id="password" type="password" placeholder="••••••••" required />
+      <div class="meta" style="margin-top: -0.5rem; margin-bottom: 0.5rem; font-size: 0.85rem;">
+        Min 12 characters with uppercase, lowercase, digit, and special character
+      </div>
 
       <label>Confirm Password</label>
       <input id="confirmPassword" type="password" placeholder="••••••••" required />
@@ -33,6 +36,17 @@
   <script src="js/utils.js"></script>
   <script src="js/auth.js"></script>
   <script>
+    // Check for existing token and auto-login
+    (async function checkAutoLogin() {
+      const token = getToken();
+      if (token) {
+        setAuthMsg('Already logged in. Redirecting...');
+        setTimeout(() => {
+          window.location.href = 'chat.html';
+        }, 500);
+      }
+    })();
+
     // Back to login button
     $('backToLogin').onclick = () => {
       window.location.href = 'login.html';
