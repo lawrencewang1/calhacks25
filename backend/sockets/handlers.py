@@ -124,6 +124,66 @@ def _parse_sse_chunk(raw: str):
             continue
 
 
+def _chunk_text(text: str, max_length: int = 300) -> list[str]:
+    """
+    Break text into smaller chunks at natural boundaries.
+
+    Tries to break at:
+    1. Paragraph boundaries (double newlines)
+    2. Sentence boundaries (. ! ?)
+    3. Comma boundaries
+    4. Word boundaries
+
+    Args:
+        text: The text to chunk
+        max_length: Maximum length of each chunk
+
+    Returns:
+        list: List of text chunks
+    """
+    if len(text) <= max_length:
+        return [text]
+
+    chunks = []
+    remaining = text
+
+    while remaining:
+        if len(remaining) <= max_length:
+            chunks.append(remaining)
+            break
+
+        # Try to find a good break point
+        chunk = remaining[:max_length]
+        break_point = max_length
+
+        # Try paragraph break first
+        last_para = chunk.rfind('\n\n')
+        if last_para > max_length * 0.3:  # At least 30% through
+            break_point = last_para + 2
+        else:
+            # Try sentence break
+            for punct in ['. ', '! ', '? ']:
+                last_punct = chunk.rfind(punct)
+                if last_punct > max_length * 0.5:  # At least 50% through
+                    break_point = last_punct + 2
+                    break
+            else:
+                # Try comma break
+                last_comma = chunk.rfind(', ')
+                if last_comma > max_length * 0.6:  # At least 60% through
+                    break_point = last_comma + 2
+                else:
+                    # Try word boundary
+                    last_space = chunk.rfind(' ')
+                    if last_space > 0:
+                        break_point = last_space + 1
+
+        chunks.append(remaining[:break_point].rstrip())
+        remaining = remaining[break_point:].lstrip()
+
+    return chunks
+
+
 def _safe_decode_jwt_with_app(token: str, app):
     """
     Safely decode a JWT token with proper app context.
@@ -220,7 +280,11 @@ def _payload(messages, app):
 
 def _llm_stream_task(socketio, run_id: str, user_text: str, app):
     """
-    Stream LLM response in a background thread.
+    Collect full LLM response and emit as complete message chunks.
+
+    Collects the full response from the LLM API, breaks it into chunks at
+    natural boundaries (paragraphs, sentences), and emits each chunk as a
+    complete message with a small delay between chunks for better UX.
 
     Args:
         socketio: SocketIO instance
@@ -232,11 +296,11 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
     ctrl = active_runs.get(run_id)
     final = []
     sent_any_delta = False
-    seq = 0
 
     llm_api_url = app.config.get("LLM_API_URL", "")
 
     try:
+        # Collect the full response without emitting deltas
         with httpx.stream(
             "POST", llm_api_url, headers=_headers(app),
             json=_payload(_build_chat(user_text, app), app), timeout=60.0
@@ -250,13 +314,8 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
                 for delta in _parse_sse_chunk(chunk):
                     sent_any_delta = True
                     final.append(delta)
-                    socketio.emit("server",
-                        {"type": "assistant.delta", "run_id": run_id, "delta": delta, "seq": seq},
-                        room=ROOM_ID
-                    )
-                    seq += 1
 
-        # 2) Fallback: if server didn't stream SSE, parse JSON body once
+        # Fallback: if server didn't stream SSE, parse JSON body once
         if not sent_any_delta:
             try:
                 # Combine the whole response and parse as JSON
@@ -273,16 +332,38 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
 
         # If the policy told the model to not respond, just complete without appending
         if final_text == "[NO_RESPONSE]":
+            socketio.emit("server",
+                {"type": "assistant.completed", "room_seq": _next_seq(), "run_id": run_id,
+                 "final_text": "", "usage": {"in": 0, "out": 0}},
+                room=ROOM_ID
+            )
             return
 
         if final_text:
-            # PRODUCTION TODO: Persist assistant message to database here as well
-            messages.append({
-                "id": str(uuid.uuid4()),
-                "sender": "assistant",
-                "text": final_text,
-                "ts": int(time.time() * 1000)
-            })
+            # Break the response into chunks at natural boundaries
+            chunks = _chunk_text(final_text, max_length=300)
+
+            # Emit each chunk as a complete message
+            for i, chunk in enumerate(chunks):
+                msg = {
+                    "id": str(uuid.uuid4()),
+                    "sender": "assistant",
+                    "text": chunk,
+                    "ts": int(time.time() * 1000)
+                }
+
+                # PRODUCTION TODO: Persist assistant message to database here as well
+                messages.append(msg)
+
+                # Emit the chunk as a complete message
+                socketio.emit("server",
+                    {"type": "message.appended", "room_seq": _next_seq(), "message": msg},
+                    room=ROOM_ID
+                )
+
+                # Small delay between chunks for better UX (0.3 seconds)
+                if i < len(chunks) - 1:
+                    time.sleep(0.3)
 
         socketio.emit("server",
             {"type": "assistant.completed", "room_seq": _next_seq(), "run_id": run_id,

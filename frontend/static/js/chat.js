@@ -9,12 +9,27 @@ let currentRun = null;
  * Log a message to the chat.
  * @param {string} line - The message text
  * @param {string} cls - CSS class for styling
+ * @param {string} sender - Optional sender name to display above the bubble
  */
-function log(line, cls = '') {
+function log(line, cls = '', sender = null) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'msg-wrapper ' + cls;
+
+  // Add sender label for user messages
+  if (sender && cls === 'user') {
+    const label = document.createElement('div');
+    label.className = 'msg-label';
+    label.textContent = sender;
+    wrapper.appendChild(label);
+  }
+
+  // Create message bubble
   const el = document.createElement('div');
   el.className = 'msg ' + cls;
   el.textContent = line;
-  $('log').appendChild(el);
+  wrapper.appendChild(el);
+
+  $('log').appendChild(wrapper);
   $('log').scrollTop = $('log').scrollHeight;
 }
 
@@ -121,34 +136,31 @@ function connectSocket() {
       case 'room.snapshot':
         setUsers(m.users.length);
         $('log').textContent = '';
-        m.messages.forEach(x => log(`${formatSender(x.sender)}> ${x.text}`, x.sender === 'assistant' ? 'assistant' : 'user'));
+        m.messages.forEach(x => {
+          const cls = x.sender === 'assistant' ? 'assistant' : 'user';
+          const sender = cls === 'user' ? formatSender(x.sender) : null;
+          log(x.text, cls, sender);
+        });
         break;
 
       case 'user.joined':
         setUsers(m.count);
-        log(`* ${m.user.name} joined`, 'meta');
+        log(`${m.user.name} joined`, 'meta');
         break;
 
       case 'user.left':
         setUsers(m.count);
-        log('* user left', 'meta');
+        log('user left', 'meta');
         break;
 
       case 'message.appended':
-        log(`${formatSender(m.message.sender)}> ${m.message.text}`, m.message.sender === 'assistant' ? 'assistant' : 'user');
+        const cls = m.message.sender === 'assistant' ? 'assistant' : 'user';
+        const sender = cls === 'user' ? formatSender(m.message.sender) : null;
+        log(m.message.text, cls, sender);
         break;
 
       case 'assistant.started':
         currentRun = m.run.run_id;
-        // Create an empty assistant message element for streaming deltas
-        log('assistant> ', 'assistant');
-        break;
-
-      case 'assistant.delta':
-        const logEl = $('log').lastElementChild;
-        if (logEl && logEl.classList.contains('assistant')) {
-          logEl.textContent += m.delta;
-        }
         break;
 
       case 'assistant.completed':
