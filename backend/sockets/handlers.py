@@ -273,11 +273,6 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
 
         # If the policy told the model to not respond, just complete without appending
         if final_text == "[NO_RESPONSE]":
-            socketio.emit("server",
-                {"type": "assistant.completed", "room_seq": _next_seq(), "run_id": run_id,
-                 "final_text": "", "usage": {"in": 0, "out": 0}},
-                room=ROOM_ID
-            )
             return
 
         if final_text:
