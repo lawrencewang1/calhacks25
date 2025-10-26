@@ -4,6 +4,7 @@
 
 let socket = null;
 let currentRun = null;
+let mySocketId = null; // Track current user's socket ID
 
 /**
  * Log a message to the chat.
