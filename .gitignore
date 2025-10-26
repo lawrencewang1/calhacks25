@@ -85,3 +85,6 @@ Thumbs.db
 *.pem
 *.key
 *.crt
+
+#nova-landing
+nova-landing/

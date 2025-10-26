@@ -13,6 +13,7 @@ from config import get_config
 from backend.extensions import db, jwt, cors, socketio, limiter, init_extensions
 from backend.routes import auth_bp
 from backend.sockets.handlers import register_socketio
+from backend.sockets.game_handlers import register_game_handlers
 from backend.utils.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def create_app(config_name=None):
 
     # Register Socket.IO handlers
     register_socketio(socketio, app)
+    register_game_handlers(socketio, app)
 
     # Register routes
     register_routes(app)

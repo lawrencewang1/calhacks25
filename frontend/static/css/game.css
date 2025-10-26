@@ -1,0 +1,581 @@
+/* Import Custom Fonts from Figma Design */
+@import url('https://fonts.cdnfonts.com/css/vcr-osd-mono');
+@import url('https://fonts.cdnfonts.com/css/shine-monday');
+@import url('https://fonts.cdnfonts.com/css/pp-neue-bit');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap");
+
+/* Game Specific Styles - Figma Design Integration */
+
+:root {
+  /* Figma Color Palette */
+  --game-orange: #F75C2D;
+  --game-orange-light: #FF7B3A;
+  --game-red: #FF7B7B;
+  --game-yellow: #E9BE00;
+  --game-blue: #80A4FF;
+  --game-cyan: #54E0FF;
+  --game-light-blue: #48B3FF;
+  --game-purple: #C444FF;
+  --game-green: #34BF83;
+  --game-bg-peach: #FFEEE8;
+  --game-bg-blue: #F1F8FF;
+  --game-text-gray: #686767;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+.game-container {
+  min-height: 100vh;
+  background: linear-gradient(102deg, #FFEEE8 35.78%, #F1F8FF 73.44%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Custom Fonts */
+.font-vcr {
+  font-family: 'VCR OSD Mono', monospace !important;
+}
+
+.font-shine {
+  font-family: 'Shine Monday', cursive !important;
+}
+
+.font-neubit {
+  font-family: 'PP NeueBit', sans-serif !important;
+}
+
+/* Background Blur Effects (from Figma) */
+.bg-blur-effects {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.blur-circle {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.5;
+}
+
+.blur-orange {
+  background: radial-gradient(circle, rgba(255, 151, 128, 0.50) 0%, transparent 70%);
+}
+
+.blur-blue {
+  background: radial-gradient(circle, rgba(165, 215, 255, 0.50) 0%, transparent 70%);
+}
+
+.blur-bottom-gradient {
+  background: linear-gradient(144deg, #DDF3FF 12.08%, #FFEEF8 47.7%, #FFF7EF 81.32%);
+  filter: blur(100px);
+}
+
+/* Header */
+.game-header {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  gap: 1rem;
+}
+
+.header-about {
+  font-family: 'VCR OSD Mono', monospace;
+  font-size: 30px;
+  color: black;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.header-lang-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-radius: 10px;
+  border: 3px solid black;
+  background: rgba(247, 247, 247, 0.30);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 20px 0 rgba(94, 116, 179, 0.25);
+}
+
+.header-lang-selector span {
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 50px;
+  font-weight: bold;
+  line-height: 1;
+  color: black;
+}
+
+/* Main Content */
+.game-content {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 120px);
+  padding: 2rem 1rem;
+  gap: 3rem;
+}
+
+/* Player Head Icons */
+.player-heads-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+  align-items: center;
+}
+
+.player-head-icon {
+  flex-shrink: 0;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1));
+}
+
+/* Game Titles */
+.game-title {
+  font-family: 'Shine Monday', cursive;
+  font-size: 60px;
+  text-align: center;
+  color: black;
+  line-height: 1.2;
+}
+
+.game-subtitle {
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 40px;
+  text-align: center;
+  color: var(--game-text-gray);
+  line-height: 1.4;
+  max-width: 900px;
+}
+
+/* Buttons */
+.btn-game {
+  position: relative;
+  padding: 1rem 2.5rem;
+  border-radius: 10px;
+  border: 3px solid black;
+  background: rgba(247, 247, 247, 0.30);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 4px 10px 0 rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Shine Monday', cursive;
+  font-size: 30px;
+  color: black;
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.btn-game:hover {
+  background: rgba(255, 255, 255, 0.50);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px 0 rgba(0, 0, 0, 0.3);
+}
+
+.btn-game:active {
+  transform: translateY(0);
+}
+
+.btn-game-primary {
+  background: rgba(255, 245, 216, 0.77);
+}
+
+.btn-game-danger {
+  background: rgba(255, 123, 123, 0.5);
+  border-color: var(--game-red);
+}
+
+/* Game Code Section */
+.game-code-card {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  padding: 2rem;
+  border-radius: 10px;
+  border: 3px solid black;
+  box-shadow: 0 4px 20px 0 rgba(94, 116, 179, 0.25);
+  text-align: center;
+  max-width: 600px;
+}
+
+.game-code-label {
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 30px;
+  color: black;
+  margin-bottom: 1rem;
+}
+
+.game-code-value {
+  font-family: 'VCR OSD Mono', monospace;
+  font-size: 60px;
+  color: var(--game-orange);
+  letter-spacing: 0.1em;
+  font-weight: bold;
+}
+
+/* Player List */
+.player-list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  width: 100%;
+  max-width: 1000px;
+}
+
+.player-card {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  padding: 1.5rem;
+  border-radius: 10px;
+  border: 2px solid black;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.player-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: var(--game-blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 24px;
+  font-weight: bold;
+  color: white;
+}
+
+.player-name {
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 20px;
+  color: black;
+  font-weight: bold;
+}
+
+.player-status {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  color: var(--game-text-gray);
+}
+
+.player-status.voted-out {
+  color: var(--game-red);
+}
+
+/* Game Status Bar */
+.game-status-bar {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  border-bottom: 3px solid black;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.game-info {
+  display: flex;
+  gap: 2rem;
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 24px;
+  color: black;
+}
+
+.timer-display {
+  font-family: 'VCR OSD Mono', monospace;
+  font-size: 36px;
+  color: var(--game-orange);
+  font-weight: bold;
+}
+
+.timer-display.warning {
+  color: var(--game-red);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Game Views */
+.game-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.game-phase {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Chat Area */
+.game-chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  gap: 1rem;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.game-chat-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(10px);
+  border-radius: 10px;
+  border: 2px solid black;
+  min-height: 0;
+}
+
+.game-message {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  border-left: 4px solid var(--game-blue);
+}
+
+.game-message-sender {
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 18px;
+  color: var(--game-orange);
+  font-weight: bold;
+  margin-bottom: 0.25rem;
+}
+
+.game-message-text {
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  color: black;
+}
+
+.game-message-time {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  color: var(--game-text-gray);
+  margin-top: 0.25rem;
+}
+
+/* Composer */
+.game-composer {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.game-composer input {
+  flex: 1;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  border: 2px solid black;
+  border-radius: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  color: black;
+}
+
+.game-composer input::placeholder {
+  color: var(--game-text-gray);
+}
+
+/* Voting */
+.vote-container {
+  width: 100%;
+  max-width: 1200px;
+  text-align: center;
+}
+
+.vote-player-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.vote-player-card {
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  padding: 2rem;
+  border-radius: 10px;
+  border: 3px solid black;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.vote-player-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.vote-player-card.selected {
+  border-color: var(--game-orange);
+  background: rgba(255, 245, 216, 0.6);
+  box-shadow: 0 0 30px rgba(247, 92, 45, 0.5);
+}
+
+/* Game End */
+.game-end-container {
+  text-align: center;
+  max-width: 800px;
+}
+
+.game-end-title {
+  font-family: 'Shine Monday', cursive;
+  font-size: 80px;
+  margin-bottom: 2rem;
+}
+
+.game-end-title.humans-win {
+  color: var(--game-green);
+}
+
+.game-end-title.ai-wins {
+  color: var(--game-red);
+}
+
+.game-end-result {
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  padding: 2rem;
+  border-radius: 10px;
+  border: 3px solid black;
+  margin: 2rem 0;
+}
+
+.game-end-result h3 {
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 40px;
+  color: black;
+  margin-bottom: 1rem;
+}
+
+.game-end-result p {
+  font-family: 'Inter', sans-serif;
+  font-size: 20px;
+  color: var(--game-text-gray);
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 3rem;
+  border-radius: 15px;
+  border: 3px solid black;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.modal-content h2 {
+  font-family: 'Shine Monday', cursive;
+  font-size: 40px;
+  color: black;
+  margin-bottom: 1.5rem;
+}
+
+.modal-content input {
+  width: 100%;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.8);
+  border: 2px solid black;
+  border-radius: 10px;
+  font-family: 'PP NeueBit', sans-serif;
+  font-size: 24px;
+  color: black;
+  margin-bottom: 1.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+/* Utility Classes */
+.hidden {
+  display: none !important;
+}
+
+.view-hidden {
+  display: none !important;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .game-title {
+    font-size: 40px;
+  }
+
+  .game-subtitle {
+    font-size: 24px;
+  }
+
+  .btn-game {
+    font-size: 24px;
+    padding: 0.75rem 1.5rem;
+  }
+
+  .game-code-value {
+    font-size: 40px;
+  }
+
+  .player-list-grid,
+  .vote-player-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Loading Animation */
+@keyframes dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+.dots-animation::after {
+  content: '';
+  animation: dots 1.5s infinite;
+}

@@ -1641,6 +1641,11 @@ function initChat() {
   // Logout button (header)
   $('logoutBtn').onclick = logout;
 
+  // Play game button
+  $('playGameBtn').onclick = () => {
+    window.location.href = '/game.html';
+  };
+
   // Member list toggle
   $('toggleMembersBtn').onclick = toggleMemberList;
 

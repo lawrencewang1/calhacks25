@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AI MPOSTER - Find the AI</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <link rel="stylesheet" href="css/game.css" />
+</head>
+<body>
+<div class="game-container">
+  <!-- Background blur effects -->
+  <div class="bg-blur-effects">
+    <div class="blur-circle blur-orange" style="width: 476px; height: 476px; left: 50%; top: 50%; transform: translate(-50%, -50%);"></div>
+    <div class="blur-circle blur-orange" style="width: 217px; height: 217px; left: 95px; top: 109px;"></div>
+    <div class="blur-circle blur-orange" style="width: 132px; height: 132px; left: 112px; bottom: 290px; filter: blur(50px);"></div>
+    <div class="blur-circle blur-blue" style="width: 476px; height: 476px; right: 0; top: 237px;"></div>
+    <div class="blur-circle blur-blue" style="width: 235px; height: 211px; right: -117px; bottom: -105px;"></div>
+    <div class="blur-bottom-gradient" style="width: 999px; height: 935px; left: 485px; bottom: -800px; position: absolute;"></div>
+  </div>
+
+  <!-- Lobby View -->
+  <div id="lobbyView" class="game-view">
+    <!-- Header -->
+    <header class="game-header">
+      <a href="/chat.html" class="header-about">back to chat</a>
+      <div class="header-lang-selector">
+        <span>english</span>
+        <svg width="39" height="39" viewBox="0 0 39 39" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M7.10125 12.4426C10.4536 13.3006 10.9948 17.0024 12.3045 18.7314C14.0433 21.0275 15.6764 20.7269 17.4915 23.0279C20.4246 26.7475 19.6235 32.2985 19.6235 33.9235M32.5 24.375H30.875C29.1511 24.375 27.4978 25.0598 26.2788 26.2788C25.0598 27.4978 24.375 29.1511 24.375 30.875V32.5M13.9539 6.487C13.9539 7.82275 14.1359 9.55175 16.4158 10.6795C18.694 11.8056 21.1575 11.2499 21.1575 14.4723C21.1575 14.9208 21.1575 17.7352 24.362 17.7352C27.6542 17.7856 27.6542 15.0085 27.6542 14.4723C27.6542 13.416 28.5106 13.0097 29.5669 13.0097H32.5M34.125 19.5C34.125 21.4206 33.7467 23.3224 33.0117 25.0967C32.2768 26.8711 31.1995 28.4834 29.8414 29.8414C28.4834 31.1995 26.8711 32.2768 25.0967 33.0117C23.3224 33.7467 21.4206 34.125 19.5 34.125C17.5794 34.125 15.6776 33.7467 13.9033 33.0117C12.1289 32.2768 10.5166 31.1995 9.15856 29.8414C7.80051 28.4834 6.72324 26.8711 5.98826 25.0967C5.25329 23.3224 4.875 21.4206 4.875 19.5C4.875 15.6212 6.41584 11.9013 9.15856 9.15856C11.9013 6.41584 15.6212 4.875 19.5 4.875C23.3788 4.875 27.0987 6.41584 29.8414 9.15856C32.5842 11.9013 34.125 15.6212 34.125 19.5Z" stroke="black" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <div class="game-content">
+      <h1 class="game-title">searching for players<span class="dots-animation"></span></h1>
+      
+      <div id="gameCodeSection" class="game-code-card hidden">
+        <div class="game-code-label">GAME CODE</div>
+        <div class="game-code-value" id="gameCode">----</div>
+        <button id="copyGameCode" class="btn-game" style="margin-top: 1rem;">
+          COPY CODE
+        </button>
+      </div>
+
+      <div style="text-align: center; width: 100%; max-width: 600px;">
+        <div class="game-subtitle" style="margin-bottom: 2rem;">Players (<span id="playerCount">0</span>/7)</div>
+        <div id="playerList" class="player-list-grid">
+          <div style="grid-column: 1 / -1; text-align: center; color: var(--game-text-gray); padding: 2rem;">
+            Waiting for players...
+          </div>
+        </div>
+      </div>
+
+      <div id="lobbyActions" style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center;">
+        <button id="createGameBtn" class="btn-game btn-game-primary">
+          CREATE GAME
+          <svg width="30" height="15" viewBox="0 0 30 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M29.7071 8.07112C30.0976 7.6806 30.0976 7.04743 29.7071 6.65691L23.3431 0.292946C22.9526 -0.0975785 22.3195 -0.0975785 21.9289 0.292946C21.5384 0.68347 21.5384 1.31664 21.9289 1.70716L27.5858 7.36401L21.9289 13.0209C21.5384 13.4114 21.5384 14.0446 21.9289 14.4351C22.3195 14.8256 22.9526 14.8256 23.3431 14.4351L29.7071 8.07112ZM0 7.36401L0 8.36401L29 8.36401V7.36401V6.36401L0 6.36401L0 7.36401Z" fill="black"/>
+          </svg>
+        </button>
+        <button id="joinGameBtn" class="btn-game">JOIN GAME</button>
+        <button id="startGameBtn" class="btn-game btn-game-primary hidden">START GAME</button>
+      </div>
+
+      <p class="game-subtitle">
+        In 2017, Sophia, a humanoid AI robot, was granted honorary citizenship in Saudi Arabia.
+      </p>
+    </div>
+  </div>
+
+  <!-- Game Active View -->
+  <div id="gameView" class="game-view view-hidden">
+    <!-- Header -->
+    <div class="game-header">
+      <button id="leaveGameBtn" class="btn-game btn-game-danger">LEAVE GAME</button>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="game-status-bar">
+      <div class="game-info">
+        <span>Round <span id="currentRound">1</span>/2</span>
+        <span id="phaseInfo">Chat Phase</span>
+      </div>
+      <div class="timer-display" id="timerDisplay">5:00</div>
+    </div>
+
+    <!-- Chat Phase -->
+    <div id="chatPhase" class="game-phase" style="flex: 1; display: flex; flex-direction: column;">
+      <div class="game-chat-container">
+        <div class="game-chat-log" id="gameChatLog"></div>
+        <div id="gameComposer" class="game-composer">
+          <input id="gameChatInput" type="text" placeholder="Type a message..." maxlength="500" />
+          <button id="gameSendBtn" class="btn-game">SEND</button>
+        </div>
+        <div id="mutedMessage" class="hidden" style="text-align: center; color: var(--game-red); font-family: 'PP NeueBit', sans-serif; font-size: 20px; margin-top: 1rem;">
+          You have been voted out and cannot speak
+        </div>
+      </div>
+    </div>
+
+    <!-- Voting Phase -->
+    <div id="votingPhase" class="game-phase view-hidden">
+      <div class="game-content">
+        <h1 class="game-title">Who is the AI?</h1>
+        <p class="game-subtitle">Cast your vote to eliminate a player</p>
+        
+        <div id="votePlayerList" class="vote-player-grid"></div>
+        
+        <div style="text-align: center;">
+          <p id="voteStatusText" class="game-subtitle">Waiting for all players to vote...</p>
+          <button id="forceEndVoteBtn" class="btn-game hidden" style="margin-top: 1rem;">FORCE END VOTING</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game End View -->
+  <div id="gameEndView" class="game-view view-hidden">
+    <div class="game-header">
+      <a href="/chat.html" class="header-about">back to chat</a>
+    </div>
+    
+    <div class="game-content">
+      <h1 id="gameEndTitle" class="game-end-title">GAME OVER!</h1>
+      
+      <div id="gameEndResult" class="game-end-result"></div>
+      
+      <div style="width: 100%; max-width: 1000px;">
+        <h3 class="game-code-label" style="margin-bottom: 1.5rem;">ALL PLAYERS</h3>
+        <div id="gameEndPlayerList" class="player-list-grid"></div>
+      </div>
+
+      <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+        <button id="playAgainBtn" class="btn-game btn-game-primary">PLAY AGAIN</button>
+        <button id="backToChatEnd" class="btn-game">BACK TO CHAT</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Join Game Modal -->
+  <div id="joinGameModal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Join Game</h2>
+      <input id="joinGameCode" type="text" placeholder="Enter game code" />
+      <div class="modal-actions">
+        <button id="joinGameConfirm" class="btn-game btn-game-primary">JOIN</button>
+        <button id="joinGameCancel" class="btn-game">CANCEL</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
