@@ -4,7 +4,7 @@ Authentication routes for user registration and login.
 
 import re
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import create_access_token
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from backend.models.user import User
 from backend.extensions import db
 
@@ -72,3 +72,104 @@ def login():
         return jsonify({"msg": "invalid credentials"}), 401
     token = create_access_token(identity=str(u.id))
     return jsonify({"access_token": token, "user": {"id": u.id, "email": u.email, "name": u.name}})
+
+@auth_bp.get("/profile")
+@jwt_required()
+def get_profile():
+    """Get current user's profile information."""
+    user_id = get_jwt_identity()
+    u = User.query.get(int(user_id))
+
+    if not u:
+        return jsonify({"msg": "user not found"}), 404
+
+    return jsonify({
+        "user": {
+            "id": u.id,
+            "email": u.email,
+            "name": u.name
+        }
+    })
+
+@auth_bp.put("/profile")
+@jwt_required()
+def update_profile():
+    """Update current user's profile information."""
+    user_id = get_jwt_identity()
+    u = User.query.get(int(user_id))
+
+    if not u:
+        return jsonify({"msg": "user not found"}), 404
+
+    data = request.get_json() or {}
+    updated = False
+
+    # Update email
+    new_email = data.get("email", "").strip()
+    if new_email and new_email != u.email:
+        # Check if email is already taken
+        if User.query.filter_by(email=new_email).first():
+            return jsonify({"msg": "email already in use"}), 400
+        u.email = new_email
+        updated = True
+
+    # Update name
+    new_name = data.get("name", "").strip()
+    if new_name and new_name != u.name:
+        # Check if name is already taken
+        if User.query.filter_by(name=new_name).first():
+            return jsonify({"msg": "username already taken"}), 400
+        u.name = new_name
+        updated = True
+
+    if updated:
+        try:
+            db.session.commit()
+            return jsonify({
+                "msg": "profile updated successfully",
+                "user": {
+                    "id": u.id,
+                    "email": u.email,
+                    "name": u.name
+                }
+            })
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"msg": "failed to update profile"}), 500
+
+    return jsonify({"msg": "no changes made"})
+
+@auth_bp.put("/password")
+@jwt_required()
+def change_password():
+    """Change current user's password."""
+    user_id = get_jwt_identity()
+    u = User.query.get(int(user_id))
+
+    if not u:
+        return jsonify({"msg": "user not found"}), 404
+
+    data = request.get_json() or {}
+    current_password = data.get("current_password")
+    new_password = data.get("new_password")
+
+    if not current_password or not new_password:
+        return jsonify({"msg": "current password and new password required"}), 400
+
+    # Verify current password
+    if not u.check_password(current_password):
+        return jsonify({"msg": "current password is incorrect"}), 401
+
+    # PRODUCTION TODO: Add password strength requirements
+    if len(new_password) < 6:
+        return jsonify({"msg": "new password must be at least 6 characters"}), 400
+
+    # Update password
+    u.set_password(new_password)
+
+    try:
+        db.session.commit()
+        return jsonify({"msg": "password changed successfully"})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"msg": "failed to change password"}), 500

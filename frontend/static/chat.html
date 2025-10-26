@@ -9,25 +9,175 @@
   <link rel="stylesheet" href="css/chat.css" />
 </head>
 <body>
-<div class="container">
-  <header>
-    <h1>Multiplayer AI Chat</h1>
-    <span id="status">disconnected</span>
-    <span id="users">users: 0</span>
-  </header>
+<div class="app-layout">
+  <!-- Room sidebar -->
+  <aside class="room-sidebar">
+    <div class="sidebar-header">
+      <h2>Rooms</h2>
+      <button id="createRoomBtn" class="create-room-btn" title="Create new room">+</button>
+    </div>
 
-  <div id="log"></div>
+    <div class="room-section">
+      <h3 class="room-section-title">Official Rooms</h3>
+      <div id="officialRoomList" class="room-list">
+        <div class="room-list-empty">No official rooms</div>
+      </div>
+    </div>
 
-  <div id="composer">
-    <input id="text" placeholder="Type a message… (mention the bot with @Midori)" maxlength="500" autofocus />
-    <span id="charCount" class="char-count">0/500</span>
-    <button id="send" class="primary">Send</button>
-    <button id="stop">Stop</button>
+    <div class="room-section">
+      <h3 class="room-section-title">Community Rooms</h3>
+      <div id="communityRoomList" class="room-list">
+        <div class="room-list-empty">No community rooms</div>
+      </div>
+    </div>
+
+    <div class="room-section">
+      <h3 class="room-section-title">My Rooms</h3>
+      <div id="myRoomList" class="room-list">
+        <div class="room-list-empty">No rooms created yet</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main chat area -->
+  <div class="chat-container">
+    <header>
+      <div class="header-left">
+        <h1>Multiplayer AI Chat</h1>
+        <span id="currentRoomName" class="current-room"></span>
+      </div>
+      <div class="header-right">
+        <span id="status">disconnected</span>
+        <span id="users">users: 0</span>
+        <button id="dmBtn" class="icon-btn" title="DM Midori">💬</button>
+        <button id="toggleMembersBtn" class="icon-btn" title="Toggle Members">👥</button>
+        <button id="settingsBtn" class="icon-btn" title="Settings">⚙️</button>
+        <button id="logoutBtn" class="icon-btn" title="Logout">🚪</button>
+      </div>
+    </header>
+
+    <div id="log" class="chat-log"></div>
+
+    <div id="composer">
+      <input id="text" placeholder="Type a message… (mention the bot with @Midori)" maxlength="500" autofocus />
+      <span id="charCount" class="char-count">0/500</span>
+      <button id="send" class="primary">Send</button>
+      <button id="stop">Stop</button>
+    </div>
+
+    <footer>
+      <div class="meta">JWT: <span id="jwtPreview">(none)</span></div>
+    </footer>
   </div>
 
-  <footer>
-    <div class="meta">JWT: <span id="jwtPreview">(none)</span></div>
-  </footer>
+  <!-- Member list sidebar -->
+  <aside id="memberSidebar" class="member-sidebar hidden">
+    <div class="sidebar-header">
+      <h2>Members</h2>
+      <span id="memberCount">0</span>
+    </div>
+    <div id="memberList" class="member-list">
+      <div class="member-list-empty">No members</div>
+    </div>
+  </aside>
+</div>
+
+<!-- Room creation modal -->
+<div id="roomModal" class="modal hidden">
+  <div class="modal-content">
+    <h2>Create New Room</h2>
+    <input id="roomNameInput" type="text" placeholder="Enter room name" maxlength="100" />
+    <div class="form-group checkbox-group">
+      <label>
+        <input id="roomPublicCheckbox" type="checkbox" checked />
+        <span>Public room (visible in community browser)</span>
+      </label>
+      <p class="help-text">Private rooms are only accessible with a direct link</p>
+    </div>
+    <div class="modal-actions">
+      <button id="createRoomConfirm" class="primary">Create</button>
+      <button id="createRoomCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- DM modal -->
+<div id="dmModal" class="modal hidden">
+  <div class="modal-content dm-modal">
+    <div class="dm-header">
+      <h2>Direct Message with Midori</h2>
+      <button id="dmClose" class="close-btn">×</button>
+    </div>
+    <div id="dmLog" class="dm-log"></div>
+    <div class="dm-composer">
+      <input id="dmText" placeholder="Type a message to Midori…" maxlength="500" />
+      <span id="dmCharCount" class="char-count">0/500</span>
+      <button id="dmSend" class="primary">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- User management modal -->
+<div id="userModal" class="modal hidden">
+  <div class="modal-content user-modal">
+    <h2 id="userModalName">User</h2>
+    <div id="userModalActions" class="user-actions">
+      <button id="kickUserBtn" class="action-btn kick">Kick from room</button>
+      <button id="tempBanUserBtn" class="action-btn tempban">Temp ban (24h)</button>
+      <button id="banUserBtn" class="action-btn ban">Permanent ban</button>
+    </div>
+    <div class="modal-actions">
+      <button id="userModalClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-content settings-modal">
+    <h2>Settings</h2>
+
+    <div class="settings-section">
+      <h3>Profile Information</h3>
+      <div class="form-group">
+        <label>Username</label>
+        <input id="settingsUsername" type="text" placeholder="Username" maxlength="40" />
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input id="settingsEmail" type="email" placeholder="Email" />
+      </div>
+      <button id="saveProfile" class="primary">Save Profile</button>
+      <div id="profileMessage" class="message"></div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Change Password</h3>
+      <div class="form-group">
+        <label>Current Password</label>
+        <input id="currentPassword" type="password" placeholder="Current password" />
+      </div>
+      <div class="form-group">
+        <label>New Password</label>
+        <input id="newPassword" type="password" placeholder="New password" />
+      </div>
+      <div class="form-group">
+        <label>Confirm New Password</label>
+        <input id="confirmPassword" type="password" placeholder="Confirm new password" />
+      </div>
+      <button id="savePassword" class="primary">Change Password</button>
+      <div id="passwordMessage" class="message"></div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Account</h3>
+      <button id="logoutBtnSettings" class="logout-btn">Logout</button>
+    </div>
+
+    <div class="modal-actions">
+      <button id="settingsClose">Close</button>
+    </div>
+  </div>
 </div>
 
 <script src="js/utils.js"></script>

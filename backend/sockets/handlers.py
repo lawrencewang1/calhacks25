@@ -1,18 +1,20 @@
 """
-WebSocket handlers for real-time chat functionality.
+WebSocket handlers for real-time chat functionality with multi-room support.
 
 This module handles all Socket.IO events including:
 - User connections and authentication
-- Message sending and broadcasting
+- Multi-room support (create, join, leave, switch rooms)
+- Message sending and broadcasting per room
 - AI assistant (Midori) response generation with smart decision-making
 - Message persistence to database
 - Message chunking for better readability
 
 Key Features:
+- Multiple chatroom support
 - LLM-based decision system for when AI should respond
 - Automatic message chunking at natural boundaries
 - Message history persistence across server restarts
-- Context-aware AI responses
+- Context-aware AI responses per room
 """
 
 import json
@@ -31,50 +33,140 @@ from jwt.exceptions import InvalidTokenError, DecodeError
 
 from backend.extensions import db
 from backend.models.user import User
-
-# Global chat room
-ROOM_ID = "global"
+from backend.models.room import Room
+from backend.models.message import Message
+from backend.models.room_ban import RoomBan
 
 # PRODUCTION TODO: Add thread locking for room_seq to prevent race conditions
-room_seq = 0
 
-# Messages are persisted to database and loaded on startup
-messages = deque(maxlen=200)     # last N messages for snapshot
-clients = {}                     # sid -> {"name":..., "user_id":...}
-active_runs = {}                 # run_id -> {"stop": False}
-messages_loaded = False          # Track if messages have been loaded from DB
+class RoomState:
+    """Manages state for a single chatroom."""
+    def __init__(self, room_id: str):
+        self.room_id = room_id
+        self.room_seq = 0
+        self.messages = deque(maxlen=200)
+        self.clients = {}  # sid -> {"name": ..., "user_id": ...}
+        self.active_runs = {}  # run_id -> {"stop": False}
+        self.messages_loaded = False
 
+    def next_seq(self):
+        """Generate the next sequence number for room events."""
+        self.room_seq += 1
+        return self.room_seq
 
-def _load_messages_from_db(app):
+    def snapshot(self):
+        """Generate a snapshot of the current room state."""
+        return {
+            "type": "room.snapshot",
+            "room_id": self.room_id,
+            "room_seq": self.room_seq,
+            "users": [{"id": sid, "name": c["name"], "user_id": c.get("user_id")} for sid, c in self.clients.items()],
+            "messages": list(self.messages)
+        }
+
+# Global dictionary mapping room_id -> RoomState
+rooms = {}
+
+# Track which room each client is currently in: sid -> room_id
+client_rooms = {}
+
+# Track user info for each connected client: sid -> {"name": ..., "user_id": ...}
+client_info = {}
+
+def get_room_state(room_id: str) -> RoomState:
     """
-    Load recent messages from the database on server startup.
+    Get or create room state for the given room_id.
+
+    Args:
+        room_id: The room ID
+
+    Returns:
+        RoomState: The room state object
+    """
+    if room_id not in rooms:
+        rooms[room_id] = RoomState(room_id)
+    return rooms[room_id]
+
+
+def _is_user_banned(app, room_id: str, user_id: int) -> tuple[bool, str]:
+    """
+    Check if a user is banned from a room.
+
+    Args:
+        app: Flask application instance
+        room_id: The room ID
+        user_id: The user ID to check
+
+    Returns:
+        tuple: (is_banned, reason) - True if banned with reason, False with empty string otherwise
+    """
+    try:
+        with app.app_context():
+            current_time = int(time.time() * 1000)
+
+            # Check for active bans (permanent or not yet expired)
+            ban = RoomBan.query.filter_by(
+                room_id=room_id,
+                user_id=user_id,
+                is_active=True
+            ).first()
+
+            if not ban:
+                return False, ""
+
+            # Check if temp ban has expired
+            if ban.expires_at and ban.expires_at < current_time:
+                # Ban has expired, deactivate it
+                ban.is_active = False
+                db.session.commit()
+                return False, ""
+
+            # User is banned
+            if ban.expires_at:
+                # Temp ban
+                time_left = (ban.expires_at - current_time) // 1000 // 60  # minutes
+                return True, f"You are temporarily banned from this room ({time_left} minutes remaining)"
+            else:
+                # Permanent ban
+                return True, "You are permanently banned from this room"
+    except Exception as e:
+        print(f"Error checking ban status: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, ""
+
+
+def _load_messages_from_db(app, room_id: str):
+    """
+    Load recent messages from the database for a specific room.
 
     Loads the most recent messages (up to maxlen) from the database
     and restores the room_seq to continue from where it left off.
 
     Args:
         app: Flask application instance (for database access)
+        room_id: The room ID to load messages for
     """
-    global messages, room_seq, messages_loaded
+    room_state = get_room_state(room_id)
 
-    if messages_loaded:
+    if room_state.messages_loaded:
         return  # Already loaded
 
     try:
-        from backend.models.message import Message
-
         with app.app_context():
-            # Get the most recent messages (limit to deque maxlen)
-            recent_messages = Message.query.order_by(
+            # Get the most recent messages for this room (limit to deque maxlen)
+            recent_messages = Message.query.filter_by(
+                room_id=room_id
+            ).order_by(
                 Message.room_seq.desc()
-            ).limit(messages.maxlen).all()
+            ).limit(room_state.messages.maxlen).all()
 
             # Reverse to get chronological order
             recent_messages.reverse()
 
             # Load into memory
             for msg_record in recent_messages:
-                messages.append({
+                room_state.messages.append({
                     "id": msg_record.id,
                     "sender": msg_record.sender,
                     "text": msg_record.text,
@@ -83,46 +175,17 @@ def _load_messages_from_db(app):
 
             # Restore room_seq to the highest value
             if recent_messages:
-                room_seq = max(msg.room_seq for msg in recent_messages)
-                print(f"Loaded {len(recent_messages)} messages from database. room_seq restored to {room_seq}")
+                room_state.room_seq = max(msg.room_seq for msg in recent_messages)
+                print(f"Loaded {len(recent_messages)} messages from database for room {room_id}. room_seq restored to {room_state.room_seq}")
             else:
-                print("No messages found in database")
+                print(f"No messages found in database for room {room_id}")
 
-            messages_loaded = True
+            room_state.messages_loaded = True
 
     except Exception as e:
-        print(f"Error loading messages from database: {e}")
+        print(f"Error loading messages from database for room {room_id}: {e}")
         import traceback
         traceback.print_exc()
-
-
-def _next_seq():
-    """
-    Generate the next sequence number for room events.
-
-    PRODUCTION TODO: Wrap this in a thread lock to prevent race conditions.
-
-    Returns:
-        int: The next sequence number
-    """
-    global room_seq
-    room_seq += 1
-    return room_seq
-
-
-def _snapshot():
-    """
-    Generate a snapshot of the current room state.
-
-    Returns:
-        dict: Room snapshot with users and messages
-    """
-    return {
-        "type": "room.snapshot",
-        "room_seq": room_seq,
-        "users": [{"id": sid, "name": c["name"]} for sid, c in clients.items()],
-        "messages": list(messages)
-    }
 
 
 def _moderate(text: str) -> bool:
@@ -289,12 +352,13 @@ def _safe_decode_jwt_with_app(token: str, app):
         return None
 
 
-def _build_chat(user_text: str, app):
+def _build_chat(user_text: str, room_state: RoomState, app):
     """
     Build chat context for LLM API request.
 
     Args:
         user_text: The user's message
+        room_state: The room state object
         app: Flask application instance (for config)
 
     Returns:
@@ -304,7 +368,7 @@ def _build_chat(user_text: str, app):
     system_prompt = app.config.get("SYSTEM_PROMPT", "You are a helpful assistant.")
     context_messages = app.config.get("CHAT_CONTEXT_MESSAGES", 50)
 
-    recent = list(messages)[-context_messages:]
+    recent = list(room_state.messages)[-context_messages:]
     chat = [{"role": "system", "content": system_prompt}]
 
     for m in recent:
@@ -346,7 +410,7 @@ def _payload(messages, app):
     return {"messages": messages, "stream": True, "max_tokens": max_tokens}
 
 
-def _should_bot_respond(user_text: str, user_name: str, app) -> bool:
+def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, app) -> bool:
     """
     Determine if the bot should respond to a message.
 
@@ -357,6 +421,7 @@ def _should_bot_respond(user_text: str, user_name: str, app) -> bool:
     Args:
         user_text: The user's message text
         user_name: The name of the user who sent the message
+        room_state: The room state object
         app: Flask application instance
 
     Returns:
@@ -371,7 +436,7 @@ def _should_bot_respond(user_text: str, user_name: str, app) -> bool:
         return True
 
     # Build conversation context for LLM
-    recent = list(messages)[-6:]  # Last 6 messages for context
+    recent = list(room_state.messages)[-6:]  # Last 6 messages for context
     conversation_history = []
 
     for msg in recent:
@@ -481,7 +546,7 @@ Reply with ONLY: YES or NO"""
         return True  # Default to responding
 
 
-def _llm_stream_task(socketio, run_id: str, user_text: str, app):
+def _llm_stream_task(socketio, run_id: str, user_text: str, room_id: str, app):
     """
     Collect full LLM response and emit as complete message chunks.
 
@@ -493,10 +558,12 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
         socketio: SocketIO instance
         run_id: Unique ID for this LLM run
         user_text: User's message text
+        room_id: The room ID
         app: Flask application instance
     """
-    print(f'STARTING STREAM: {user_text}')
-    ctrl = active_runs.get(run_id)
+    print(f'STARTING STREAM in room {room_id}: {user_text}')
+    room_state = get_room_state(room_id)
+    ctrl = room_state.active_runs.get(run_id)
     final = []
     sent_any_delta = False
 
@@ -506,7 +573,7 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
         # Collect the full response without emitting deltas
         with httpx.stream(
             "POST", llm_api_url, headers=_headers(app),
-            json=_payload(_build_chat(user_text, app), app), timeout=60.0
+            json=_payload(_build_chat(user_text, room_state, app), app), timeout=60.0
         ) as resp:
             resp.raise_for_status()
             collected_raw = []
@@ -536,9 +603,9 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
         # If the policy told the model to not respond, just complete without appending
         if final_text == "[NO_RESPONSE]":
             socketio.emit("server",
-                {"type": "assistant.completed", "room_seq": _next_seq(), "run_id": run_id,
+                {"type": "assistant.completed", "room_seq": room_state.next_seq(), "run_id": run_id,
                  "final_text": "", "usage": {"in": 0, "out": 0}},
-                room=ROOM_ID
+                room=room_id
             )
             return
 
@@ -556,15 +623,15 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
                 }
 
                 # Persist assistant message to database
-                seq = _next_seq()
-                messages.append(msg)
+                seq = room_state.next_seq()
+                room_state.messages.append(msg)
 
                 try:
-                    from backend.models.message import Message
                     # Use app context since we're in a background thread
                     with app.app_context():
                         msg_record = Message(
                             id=msg["id"],
+                            room_id=room_id,
                             room_seq=seq,
                             sender=msg["sender"],
                             text=msg["text"],
@@ -583,7 +650,7 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
                 # Emit the chunk as a complete message
                 socketio.emit("server",
                     {"type": "message.appended", "room_seq": seq, "message": msg},
-                    room=ROOM_ID
+                    room=room_id
                 )
 
                 # Small delay between chunks for better UX (0.3 seconds)
@@ -591,32 +658,150 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
                     time.sleep(0.3)
 
         socketio.emit("server",
-            {"type": "assistant.completed", "room_seq": _next_seq(), "run_id": run_id,
+            {"type": "assistant.completed", "room_seq": room_state.next_seq(), "run_id": run_id,
              "final_text": final_text, "usage": {"in": 0, "out": 0}},
-            room=ROOM_ID
+            room=room_id
         )
     except httpx.HTTPStatusError as e:
         socketio.emit("server",
             {"type": "error", "message": f"LLM HTTP {e.response.status_code}: {e.response.text[:200]}"},
-            room=ROOM_ID)
+            room=room_id)
     except Exception as e:
         socketio.emit("server", {"type": "error", "message": f"LLM error: {e}"},
-            room=ROOM_ID)
+            room=room_id)
     finally:
-        active_runs.pop(run_id, None)
+        room_state.active_runs.pop(run_id, None)
+
+
+def _llm_stream_task_dm(socketio, run_id: str, user_text: str, room_id: str, app, target_sid: str):
+    """
+    LLM stream task for DMs - sends messages only to a specific user.
+
+    Args:
+        socketio: SocketIO instance
+        run_id: Unique ID for this LLM run
+        user_text: User's message text
+        room_id: The DM room ID
+        app: Flask application instance
+        target_sid: Socket ID of the user to send messages to
+    """
+    print(f'STARTING DM STREAM for {target_sid} in room {room_id}: {user_text}')
+    room_state = get_room_state(room_id)
+    ctrl = room_state.active_runs.get(run_id)
+    final = []
+    sent_any_delta = False
+
+    llm_api_url = app.config.get("LLM_API_URL", "")
+
+    try:
+        # Collect the full response without emitting deltas
+        with httpx.stream(
+            "POST", llm_api_url, headers=_headers(app),
+            json=_payload(_build_chat(user_text, room_state, app), app), timeout=60.0
+        ) as resp:
+            resp.raise_for_status()
+            collected_raw = []
+            for chunk in resp.iter_text():
+                if ctrl and ctrl.get("stop"):
+                    break
+                collected_raw.append(chunk)
+                for delta in _parse_sse_chunk(chunk):
+                    sent_any_delta = True
+                    final.append(delta)
+
+        # Fallback: if server didn't stream SSE, parse JSON body once
+        if not sent_any_delta:
+            try:
+                body = "".join(collected_raw).strip()
+                obj = json.loads(body)
+                text_once = _extract_text_from_obj(obj)
+                if text_once:
+                    final.append(text_once)
+            except Exception:
+                pass
+
+        # Finalize
+        final_text = "".join(final).strip()
+
+        if final_text == "[NO_RESPONSE]":
+            socketio.emit("server",
+                {"type": "assistant.completed", "room_seq": room_state.next_seq(), "run_id": run_id,
+                 "final_text": "", "usage": {"in": 0, "out": 0}},
+                to=target_sid
+            )
+            return
+
+        if final_text:
+            # Break the response into chunks at natural boundaries
+            chunks = _chunk_text(final_text, max_length=300)
+
+            # Emit each chunk as a complete message (only to the target user)
+            for i, chunk in enumerate(chunks):
+                msg = {
+                    "id": str(uuid.uuid4()),
+                    "sender": "assistant",
+                    "text": chunk,
+                    "ts": int(time.time() * 1000)
+                }
+
+                # Persist assistant message to database
+                seq = room_state.next_seq()
+                room_state.messages.append(msg)
+
+                try:
+                    with app.app_context():
+                        msg_record = Message(
+                            id=msg["id"],
+                            room_id=room_id,
+                            room_seq=seq,
+                            sender=msg["sender"],
+                            text=msg["text"],
+                            timestamp=msg["ts"]
+                        )
+                        db.session.add(msg_record)
+                        db.session.commit()
+                except Exception as e:
+                    print(f"Error persisting DM assistant message to database: {e}")
+                    try:
+                        with app.app_context():
+                            db.session.rollback()
+                    except:
+                        pass
+
+                # Emit the chunk only to the specific user
+                socketio.emit("server",
+                    {"type": "dm.message", "room_seq": seq, "message": msg},
+                    to=target_sid
+                )
+
+                # Small delay between chunks for better UX (0.3 seconds)
+                if i < len(chunks) - 1:
+                    time.sleep(0.3)
+
+        socketio.emit("server",
+            {"type": "assistant.completed", "room_seq": room_state.next_seq(), "run_id": run_id,
+             "final_text": final_text, "usage": {"in": 0, "out": 0}},
+            to=target_sid
+        )
+    except httpx.HTTPStatusError as e:
+        socketio.emit("server",
+            {"type": "error", "message": f"LLM HTTP {e.response.status_code}: {e.response.text[:200]}"},
+            to=target_sid)
+    except Exception as e:
+        socketio.emit("server", {"type": "error", "message": f"LLM error: {e}"},
+            to=target_sid)
+    finally:
+        room_state.active_runs.pop(run_id, None)
 
 
 def register_socketio(socketio, app):
     """
-    Register Socket.IO event handlers.
+    Register Socket.IO event handlers with multi-room support.
 
     Args:
         socketio: SocketIO instance
         app: Flask application instance
     """
-    # Load messages from database on startup
-    _load_messages_from_db(app)
-
     allow_guests = app.config.get("ALLOW_GUESTS", False)
 
     @socketio.on("connect")
@@ -662,35 +847,63 @@ def register_socketio(socketio, app):
             print(f"Connection rejected: ALLOW_GUESTS={allow_guests}, claims={claims}")
             return False  # tells Socket.IO to refuse the connection
 
-        # Accept connection
-        clients[request.sid] = {"name": name, "user_id": user_id}
-        join_room(ROOM_ID)
+        # Store client info (not yet in any room)
+        client_rooms[request.sid] = None
+        client_info[request.sid] = {"name": name, "user_id": user_id}
 
-        # Send snapshot to this client
-        socketio.emit("server", _snapshot(), to=request.sid)
+        # Send list of available rooms (official, public community, and user's own rooms)
+        try:
+            with app.app_context():
+                official_rooms = Room.query.filter_by(is_active=True, is_official=True).all()
+                community_rooms = Room.query.filter_by(is_active=True, is_official=False, is_public=True).all()
 
-        # Notify the room
-        seq = _next_seq()
-        socketio.emit("server", {
-            "type": "user.joined",
-            "room_seq": seq,
-            "user": {"id": request.sid, "name": name},
-            "count": len(clients)
-        }, room=ROOM_ID)
+                # Get user's own rooms (both public and private)
+                my_rooms = []
+                if user_id:
+                    my_rooms = Room.query.filter_by(is_active=True, created_by=int(user_id)).all()
+
+                official_list = [r.to_dict() for r in official_rooms]
+                community_list = [r.to_dict() for r in community_rooms]
+                my_rooms_list = [r.to_dict() for r in my_rooms]
+
+                socketio.emit("server", {
+                    "type": "rooms.list",
+                    "official_rooms": official_list,
+                    "community_rooms": community_list,
+                    "my_rooms": my_rooms_list,
+                    "user_info": {"name": name, "user_id": user_id}
+                }, to=request.sid)
+        except Exception as e:
+            print(f"Error fetching rooms: {e}")
+            socketio.emit("server", {
+                "type": "rooms.list",
+                "official_rooms": [],
+                "community_rooms": [],
+                "my_rooms": [],
+                "user_info": {"name": name, "user_id": user_id}
+            }, to=request.sid)
 
     @socketio.on("disconnect")
     def _on_disconnect():
         """Handle client disconnection."""
         print("WS disconnect:", request.sid)
-        if request.sid in clients:
-            clients.pop(request.sid, None)
-            seq = _next_seq()
-            socketio.emit("server", {
-                "type": "user.left",
-                "room_seq": seq,
-                "user_id": request.sid,
-                "count": len(clients)
-            }, room=ROOM_ID)
+
+        # Leave current room if in one
+        current_room = client_rooms.get(request.sid)
+        if current_room and current_room in rooms:
+            room_state = rooms[current_room]
+            if request.sid in room_state.clients:
+                room_state.clients.pop(request.sid, None)
+                seq = room_state.next_seq()
+                socketio.emit("server", {
+                    "type": "user.left",
+                    "room_seq": seq,
+                    "user_id": request.sid,
+                    "count": len(room_state.clients)
+                }, room=current_room)
+
+        client_rooms.pop(request.sid, None)
+        client_info.pop(request.sid, None)
 
     @socketio.on("client")
     def _on_client(msg):
@@ -698,36 +911,601 @@ def register_socketio(socketio, app):
         print("WS event:", msg)
         t = msg.get("type")
 
-        if t == "send.message":
+        if t == "room.join":
+            # Handle room join request
+            room_id = msg.get("room_id")
+            if not room_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "No room_id provided"
+                }, to=request.sid)
+                return
+
+            # Get user info and check for bans
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            # Check if user is banned from this room
+            if user_id:
+                is_banned, ban_reason = _is_user_banned(app, room_id, int(user_id))
+                if is_banned:
+                    socketio.emit("server", {
+                        "type": "error",
+                        "message": ban_reason
+                    }, to=request.sid)
+                    return
+
+            # Get or create room state
+            room_state = get_room_state(room_id)
+
+            # Load messages for this room if not loaded yet
+            _load_messages_from_db(app, room_id)
+
+            # Leave current room if in one
+            current_room = client_rooms.get(request.sid)
+            if current_room:
+                if current_room in rooms:
+                    old_room_state = rooms[current_room]
+                    old_room_state.clients.pop(request.sid, None)
+                    socketio.emit("server", {
+                        "type": "user.left",
+                        "room_seq": old_room_state.next_seq(),
+                        "user_id": request.sid,
+                        "count": len(old_room_state.clients)
+                    }, room=current_room)
+                leave_room(current_room)
+
+            # Join new room
+            join_room(room_id)
+            client_rooms[request.sid] = room_id
+
+            # Get user info from stored client info (set during connection)
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_name = user_info["name"]
+            user_id = user_info["user_id"]
+
+            room_state.clients[request.sid] = {"name": user_name, "user_id": user_id}
+
+            # Send snapshot to this client
+            socketio.emit("server", room_state.snapshot(), to=request.sid)
+
+            # Notify the room
+            seq = room_state.next_seq()
+            socketio.emit("server", {
+                "type": "user.joined",
+                "room_seq": seq,
+                "user": {"id": request.sid, "name": user_name, "user_id": user_id},
+                "count": len(room_state.clients)
+            }, room=room_id)
+
+        elif t == "room.create":
+            # Handle room creation
+            room_name = msg.get("room_name", "").strip()
+            is_public = msg.get("is_public", True)  # Default to public
+
+            if not room_name:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room name is required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to create a room"
+                }, to=request.sid)
+                return
+
+            # Create room in database
+            try:
+                with app.app_context():
+                    new_room = Room(
+                        name=room_name,
+                        created_by=int(user_id),
+                        is_official=False,  # User-created rooms are never official
+                        is_public=is_public
+                    )
+                    db.session.add(new_room)
+                    db.session.commit()
+
+                    # Get official and public community rooms
+                    official_rooms = Room.query.filter_by(is_active=True, is_official=True).all()
+                    community_rooms = Room.query.filter_by(is_active=True, is_official=False, is_public=True).all()
+
+                    official_list = [r.to_dict() for r in official_rooms]
+                    community_list = [r.to_dict() for r in community_rooms]
+
+                    socketio.emit("server", {
+                        "type": "room.created",
+                        "room": new_room.to_dict()
+                    }, to=request.sid)
+
+                    # Broadcast updated room lists to all connected clients
+                    # Note: my_rooms will be calculated per-client when they connect
+                    socketio.emit("server", {
+                        "type": "rooms.list.update",
+                        "official_rooms": official_list,
+                        "community_rooms": community_list
+                    })
+
+            except Exception as e:
+                print(f"Error creating room: {e}")
+                import traceback
+                traceback.print_exc()
+                with app.app_context():
+                    db.session.rollback()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to create room"
+                }, to=request.sid)
+
+        elif t == "room.delete":
+            # Handle room deletion
+            room_id = msg.get("room_id")
+            if not room_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room ID is required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to delete a room"
+                }, to=request.sid)
+                return
+
+            # Delete room in database
+            try:
+                with app.app_context():
+                    room = Room.query.get(room_id)
+                    if not room:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Room not found"
+                        }, to=request.sid)
+                        return
+
+                    # Check if user is the owner
+                    if room.created_by != int(user_id):
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "You can only delete rooms you created"
+                        }, to=request.sid)
+                        return
+
+                    # Don't allow deleting official rooms
+                    if room.is_official:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Cannot delete official rooms"
+                        }, to=request.sid)
+                        return
+
+                    # Soft delete (mark as inactive)
+                    room.is_active = False
+                    db.session.commit()
+
+                    # Get updated room lists
+                    official_rooms = Room.query.filter_by(is_active=True, is_official=True).all()
+                    community_rooms = Room.query.filter_by(is_active=True, is_official=False, is_public=True).all()
+
+                    official_list = [r.to_dict() for r in official_rooms]
+                    community_list = [r.to_dict() for r in community_rooms]
+
+                    # Notify the user
+                    socketio.emit("server", {
+                        "type": "room.deleted",
+                        "room_id": room_id
+                    }, to=request.sid)
+
+                    # Broadcast updated room lists to all connected clients
+                    socketio.emit("server", {
+                        "type": "rooms.list.update",
+                        "official_rooms": official_list,
+                        "community_rooms": community_list
+                    })
+
+                    # Kick all users from the deleted room
+                    if room_id in rooms:
+                        room_state = rooms[room_id]
+                        for sid in list(room_state.clients.keys()):
+                            socketio.emit("server", {
+                                "type": "room.closed",
+                                "message": "This room has been deleted by the owner"
+                            }, to=sid)
+
+            except Exception as e:
+                print(f"Error deleting room: {e}")
+                import traceback
+                traceback.print_exc()
+                with app.app_context():
+                    db.session.rollback()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to delete room"
+                }, to=request.sid)
+
+        elif t == "user.kick":
+            # Handle kicking a user from a room
+            room_id = msg.get("room_id")
+            target_user_id = msg.get("target_user_id")
+
+            if not room_id or not target_user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room ID and target user ID are required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to kick users"
+                }, to=request.sid)
+                return
+
+            try:
+                with app.app_context():
+                    room = Room.query.get(room_id)
+                    if not room:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Room not found"
+                        }, to=request.sid)
+                        return
+
+                    # Check if user is the room owner
+                    if room.created_by != int(user_id):
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Only the room owner can kick users"
+                        }, to=request.sid)
+                        return
+
+                    # Find the target user's socket ID
+                    target_sid = None
+                    if room_id in rooms:
+                        room_state = rooms[room_id]
+                        for sid, info in room_state.clients.items():
+                            if info.get("user_id") == target_user_id:
+                                target_sid = sid
+                                break
+
+                    if target_sid:
+                        # Remove from room state
+                        room_state.clients.pop(target_sid, None)
+
+                        # Send kick notification to the kicked user
+                        socketio.emit("server", {
+                            "type": "user.kicked",
+                            "message": "You have been kicked from the room by the owner"
+                        }, to=target_sid)
+
+                        # Leave the room
+                        leave_room(room_id, sid=target_sid)
+                        client_rooms[target_sid] = None
+
+                        # Notify others in the room
+                        socketio.emit("server", {
+                            "type": "user.left",
+                            "room_seq": room_state.next_seq(),
+                            "user_id": target_sid,
+                            "count": len(room_state.clients)
+                        }, room=room_id)
+
+                    # Confirm to the requester
+                    socketio.emit("server", {
+                        "type": "user.kick.success",
+                        "message": "User has been kicked"
+                    }, to=request.sid)
+
+            except Exception as e:
+                print(f"Error kicking user: {e}")
+                import traceback
+                traceback.print_exc()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to kick user"
+                }, to=request.sid)
+
+        elif t == "user.tempban":
+            # Handle temporarily banning a user (24 hours)
+            room_id = msg.get("room_id")
+            target_user_id = msg.get("target_user_id")
+
+            if not room_id or not target_user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room ID and target user ID are required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to ban users"
+                }, to=request.sid)
+                return
+
+            try:
+                with app.app_context():
+                    room = Room.query.get(room_id)
+                    if not room:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Room not found"
+                        }, to=request.sid)
+                        return
+
+                    # Check if user is the room owner
+                    if room.created_by != int(user_id):
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Only the room owner can ban users"
+                        }, to=request.sid)
+                        return
+
+                    # Check if user is trying to ban themselves
+                    if int(target_user_id) == int(user_id):
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "You cannot ban yourself"
+                        }, to=request.sid)
+                        return
+
+                    # Create temp ban (24 hours = 86400000 milliseconds)
+                    current_time = int(time.time() * 1000)
+                    expires_at = current_time + (24 * 60 * 60 * 1000)
+
+                    # Deactivate any existing bans
+                    existing_bans = RoomBan.query.filter_by(
+                        room_id=room_id,
+                        user_id=int(target_user_id),
+                        is_active=True
+                    ).all()
+                    for ban in existing_bans:
+                        ban.is_active = False
+
+                    # Create new ban
+                    new_ban = RoomBan(
+                        room_id=room_id,
+                        user_id=int(target_user_id),
+                        banned_by=int(user_id),
+                        expires_at=expires_at,
+                        reason="Temporarily banned by room owner"
+                    )
+                    db.session.add(new_ban)
+                    db.session.commit()
+
+                    # Find the target user's socket ID and kick them
+                    target_sid = None
+                    if room_id in rooms:
+                        room_state = rooms[room_id]
+                        for sid, info in room_state.clients.items():
+                            if info.get("user_id") == target_user_id:
+                                target_sid = sid
+                                break
+
+                        if target_sid:
+                            # Remove from room state
+                            room_state.clients.pop(target_sid, None)
+
+                            # Send ban notification to the banned user
+                            socketio.emit("server", {
+                                "type": "user.banned",
+                                "message": "You have been temporarily banned from this room for 24 hours"
+                            }, to=target_sid)
+
+                            # Leave the room
+                            leave_room(room_id, sid=target_sid)
+                            client_rooms[target_sid] = None
+
+                            # Notify others in the room
+                            socketio.emit("server", {
+                                "type": "user.left",
+                                "room_seq": room_state.next_seq(),
+                                "user_id": target_sid,
+                                "count": len(room_state.clients)
+                            }, room=room_id)
+
+                    # Confirm to the requester
+                    socketio.emit("server", {
+                        "type": "user.tempban.success",
+                        "message": "User has been temporarily banned for 24 hours"
+                    }, to=request.sid)
+
+            except Exception as e:
+                print(f"Error temp banning user: {e}")
+                import traceback
+                traceback.print_exc()
+                with app.app_context():
+                    db.session.rollback()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to temp ban user"
+                }, to=request.sid)
+
+        elif t == "user.ban":
+            # Handle permanently banning a user
+            room_id = msg.get("room_id")
+            target_user_id = msg.get("target_user_id")
+
+            if not room_id or not target_user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room ID and target user ID are required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to ban users"
+                }, to=request.sid)
+                return
+
+            try:
+                with app.app_context():
+                    room = Room.query.get(room_id)
+                    if not room:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Room not found"
+                        }, to=request.sid)
+                        return
+
+                    # Check if user is the room owner
+                    if room.created_by != int(user_id):
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Only the room owner can ban users"
+                        }, to=request.sid)
+                        return
+
+                    # Check if user is trying to ban themselves
+                    if int(target_user_id) == int(user_id):
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "You cannot ban yourself"
+                        }, to=request.sid)
+                        return
+
+                    # Deactivate any existing bans
+                    existing_bans = RoomBan.query.filter_by(
+                        room_id=room_id,
+                        user_id=int(target_user_id),
+                        is_active=True
+                    ).all()
+                    for ban in existing_bans:
+                        ban.is_active = False
+
+                    # Create permanent ban (expires_at = None)
+                    new_ban = RoomBan(
+                        room_id=room_id,
+                        user_id=int(target_user_id),
+                        banned_by=int(user_id),
+                        expires_at=None,
+                        reason="Permanently banned by room owner"
+                    )
+                    db.session.add(new_ban)
+                    db.session.commit()
+
+                    # Find the target user's socket ID and kick them
+                    target_sid = None
+                    if room_id in rooms:
+                        room_state = rooms[room_id]
+                        for sid, info in room_state.clients.items():
+                            if info.get("user_id") == target_user_id:
+                                target_sid = sid
+                                break
+
+                        if target_sid:
+                            # Remove from room state
+                            room_state.clients.pop(target_sid, None)
+
+                            # Send ban notification to the banned user
+                            socketio.emit("server", {
+                                "type": "user.banned",
+                                "message": "You have been permanently banned from this room"
+                            }, to=target_sid)
+
+                            # Leave the room
+                            leave_room(room_id, sid=target_sid)
+                            client_rooms[target_sid] = None
+
+                            # Notify others in the room
+                            socketio.emit("server", {
+                                "type": "user.left",
+                                "room_seq": room_state.next_seq(),
+                                "user_id": target_sid,
+                                "count": len(room_state.clients)
+                            }, room=room_id)
+
+                    # Confirm to the requester
+                    socketio.emit("server", {
+                        "type": "user.ban.success",
+                        "message": "User has been permanently banned"
+                    }, to=request.sid)
+
+            except Exception as e:
+                print(f"Error permanently banning user: {e}")
+                import traceback
+                traceback.print_exc()
+                with app.app_context():
+                    db.session.rollback()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to ban user"
+                }, to=request.sid)
+
+        elif t == "send.message":
             # Handle user message
+            current_room = client_rooms.get(request.sid)
+            if not current_room:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Not in a room"
+                }, to=request.sid)
+                return
+
+            room_state = get_room_state(current_room)
+
             text = (msg.get("text") or "").strip()
             if not text or text == '[NO_RESPONSE]':
                 return
 
             m = {
                 "id": msg.get("client_msg_id") or str(uuid.uuid4()),
-                "sender": f"user:{clients.get(request.sid, {}).get('name', 'anon')}",
+                "sender": f"user:{room_state.clients.get(request.sid, {}).get('name', 'anon')}",
                 "text": text,
                 "ts": int(time.time() * 1000),
             }
-            seq = _next_seq()
-            messages.append(m)
+            seq = room_state.next_seq()
+            room_state.messages.append(m)
 
             # Persist message to database
             try:
-                from backend.models.message import Message
-                msg_record = Message(
-                    id=m["id"],
-                    room_seq=seq,
-                    sender=m["sender"],
-                    text=m["text"],
-                    timestamp=m["ts"]
-                )
-                db.session.add(msg_record)
-                db.session.commit()
+                with app.app_context():
+                    msg_record = Message(
+                        id=m["id"],
+                        room_id=current_room,
+                        room_seq=seq,
+                        sender=m["sender"],
+                        text=m["text"],
+                        timestamp=m["ts"]
+                    )
+                    db.session.add(msg_record)
+                    db.session.commit()
             except Exception as e:
                 print(f"Error persisting user message to database: {e}")
-                db.session.rollback()
+                try:
+                    with app.app_context():
+                        db.session.rollback()
+                except:
+                    pass
 
             # Broadcast message
             socketio.emit("server",
@@ -735,34 +1513,129 @@ def register_socketio(socketio, app):
                 to=request.sid)
             socketio.emit("server",
                 {"type": "message.appended", "room_seq": seq, "message": m},
-                room=ROOM_ID, skip_sid=request.sid)
+                room=current_room, skip_sid=request.sid)
 
             # Check if bot should respond
-            user_name = clients.get(request.sid, {}).get('name', 'anon')
-            if not _should_bot_respond(text, user_name, app):
+            user_name = room_state.clients.get(request.sid, {}).get('name', 'anon')
+            if not _should_bot_respond(text, user_name, room_state, app):
                 print(f"Bot decided not to respond to: {text[:50]}...")
                 return
 
             # Start AI assistant
             run_id = str(uuid.uuid4())
-            active_runs[run_id] = {"stop": False}
+            room_state.active_runs[run_id] = {"stop": False}
 
             socketio.emit("server", {
                 "type": "assistant.started",
-                "room_seq": _next_seq(),
+                "room_seq": room_state.next_seq(),
                 "run": {"run_id": run_id, "parent_message_id": m["id"]}
-            }, room=ROOM_ID)
+            }, room=current_room)
 
             # Start LLM stream in background thread
             threading.Thread(
                 target=_llm_stream_task,
-                args=(socketio, run_id, f"user:{user_name}, text: " + text, app),
+                args=(socketio, run_id, f"user:{user_name}, text: " + text, current_room, app),
                 daemon=True
             ).start()
 
+        elif t == "send.dm":
+            # Handle direct message to bot
+            text = (msg.get("text") or "").strip()
+            if not text or text == '[NO_RESPONSE]':
+                return
+
+            # Get user info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_name = user_info["name"]
+            user_id = user_info["user_id"]
+
+            # Create a DM "room" specific to this user
+            dm_room_id = f"dm:{user_id or request.sid}"
+            room_state = get_room_state(dm_room_id)
+
+            # Load messages for this DM room if not loaded yet
+            _load_messages_from_db(app, dm_room_id)
+
+            # Add user's message
+            m = {
+                "id": msg.get("client_msg_id") or str(uuid.uuid4()),
+                "sender": f"user:{user_name}",
+                "text": text,
+                "ts": int(time.time() * 1000),
+            }
+            seq = room_state.next_seq()
+            room_state.messages.append(m)
+
+            # Persist message to database
+            try:
+                with app.app_context():
+                    msg_record = Message(
+                        id=m["id"],
+                        room_id=dm_room_id,
+                        room_seq=seq,
+                        sender=m["sender"],
+                        text=m["text"],
+                        timestamp=m["ts"]
+                    )
+                    db.session.add(msg_record)
+                    db.session.commit()
+            except Exception as e:
+                print(f"Error persisting DM to database: {e}")
+                try:
+                    with app.app_context():
+                        db.session.rollback()
+                except:
+                    pass
+
+            # Send confirmation back to user
+            socketio.emit("server",
+                {"type": "dm.sent", "message": m},
+                to=request.sid)
+
+            # Start AI assistant (always respond to DMs)
+            run_id = str(uuid.uuid4())
+            room_state.active_runs[run_id] = {"stop": False}
+
+            socketio.emit("server", {
+                "type": "assistant.started",
+                "room_seq": room_state.next_seq(),
+                "run": {"run_id": run_id, "parent_message_id": m["id"]}
+            }, to=request.sid)
+
+            # Start LLM stream in background thread, sending responses only to this user
+            # Capture request.sid before starting thread (it's a context-local variable)
+            target_sid = request.sid
+
+            threading.Thread(
+                target=_llm_stream_task_dm,
+                args=(socketio, run_id, f"user:{user_name}, text: " + text, dm_room_id, app, target_sid),
+                daemon=True
+            ).start()
+
+        elif t == "load.dm_history":
+            # Load DM history for the current user
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+            dm_room_id = f"dm:{user_id or request.sid}"
+
+            # Load messages for this DM room
+            room_state = get_room_state(dm_room_id)
+            _load_messages_from_db(app, dm_room_id)
+
+            # Send DM history to client
+            socketio.emit("server", {
+                "type": "dm.history",
+                "messages": list(room_state.messages)
+            }, to=request.sid)
+
         elif t == "run.stop":
             # Handle stop request
+            current_room = client_rooms.get(request.sid)
+            if not current_room:
+                return
+
+            room_state = get_room_state(current_room)
             rid = msg.get("run_id")
-            ctrl = active_runs.get(rid)
+            ctrl = room_state.active_runs.get(rid)
             if ctrl:
                 ctrl["stop"] = True
