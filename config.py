@@ -58,7 +58,8 @@ class Config:
     # Feature Flags
     ALLOW_GUESTS = os.getenv("ALLOW_GUESTS", "false").lower() == "true"
 
-    # System Prompt for AI
+    # AI Assistant Configuration
+    # System prompt defines Midori's personality and behavior
     SYSTEM_PROMPT = os.getenv(
         "SYSTEM_PROMPT",
         """
@@ -97,9 +98,9 @@ class Config:
     )
 
     # Message and Chat Settings
-    MAX_MESSAGE_LENGTH = 500
-    MESSAGE_HISTORY_LIMIT = 200
-    CHAT_CONTEXT_MESSAGES = 50
+    MAX_MESSAGE_LENGTH = 500  # Maximum characters per message
+    MESSAGE_HISTORY_LIMIT = 200  # Maximum messages stored in memory (loaded from DB on startup)
+    CHAT_CONTEXT_MESSAGES = 50  # Number of recent messages sent to AI for context
 
     # Logging
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

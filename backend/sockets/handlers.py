@@ -1,3 +1,20 @@
+"""
+WebSocket handlers for real-time chat functionality.
+
+This module handles all Socket.IO events including:
+- User connections and authentication
+- Message sending and broadcasting
+- AI assistant (Midori) response generation with smart decision-making
+- Message persistence to database
+- Message chunking for better readability
+
+Key Features:
+- LLM-based decision system for when AI should respond
+- Automatic message chunking at natural boundaries
+- Message history persistence across server restarts
+- Context-aware AI responses
+"""
+
 import json
 import time
 import uuid
@@ -21,11 +38,62 @@ ROOM_ID = "global"
 # PRODUCTION TODO: Add thread locking for room_seq to prevent race conditions
 room_seq = 0
 
-# PRODUCTION TODO: Messages are stored in memory only and will be lost on restart
-# Consider persisting to the Message database model for production
+# Messages are persisted to database and loaded on startup
 messages = deque(maxlen=200)     # last N messages for snapshot
 clients = {}                     # sid -> {"name":..., "user_id":...}
 active_runs = {}                 # run_id -> {"stop": False}
+messages_loaded = False          # Track if messages have been loaded from DB
+
+
+def _load_messages_from_db(app):
+    """
+    Load recent messages from the database on server startup.
+
+    Loads the most recent messages (up to maxlen) from the database
+    and restores the room_seq to continue from where it left off.
+
+    Args:
+        app: Flask application instance (for database access)
+    """
+    global messages, room_seq, messages_loaded
+
+    if messages_loaded:
+        return  # Already loaded
+
+    try:
+        from backend.models.message import Message
+
+        with app.app_context():
+            # Get the most recent messages (limit to deque maxlen)
+            recent_messages = Message.query.order_by(
+                Message.room_seq.desc()
+            ).limit(messages.maxlen).all()
+
+            # Reverse to get chronological order
+            recent_messages.reverse()
+
+            # Load into memory
+            for msg_record in recent_messages:
+                messages.append({
+                    "id": msg_record.id,
+                    "sender": msg_record.sender,
+                    "text": msg_record.text,
+                    "ts": msg_record.timestamp
+                })
+
+            # Restore room_seq to the highest value
+            if recent_messages:
+                room_seq = max(msg.room_seq for msg in recent_messages)
+                print(f"Loaded {len(recent_messages)} messages from database. room_seq restored to {room_seq}")
+            else:
+                print("No messages found in database")
+
+            messages_loaded = True
+
+    except Exception as e:
+        print(f"Error loading messages from database: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def _next_seq():
@@ -379,15 +447,34 @@ Reply with ONLY: YES or NO"""
             )
             resp.raise_for_status()
 
-            body = resp.json()
-            decision = _extract_text_from_obj(body).strip().upper()
+            # Get response text and try to parse as JSON
+            response_text = resp.text.strip()
+            if not response_text:
+                print("Warning: Empty response from LLM decision API, defaulting to respond")
+                return True
+
+            try:
+                body = resp.json()
+                decision = _extract_text_from_obj(body).strip().upper()
+            except json.JSONDecodeError:
+                # Response is not JSON, treat it as plain text
+                print(f"Non-JSON response from decision API: {response_text[:100]}")
+                decision = response_text.upper()
 
             should_respond = "YES" in decision
             print(f"Bot decision for '{user_text[:50]}...': {decision} -> {should_respond}")
             return should_respond
 
+    except httpx.HTTPStatusError as e:
+        print(f"HTTP error in response decision: {e.response.status_code}, defaulting to lenient response")
+        # More lenient default: respond to most things except very short messages
+        if len(user_text.split()) <= 2 and '?' not in user_text:
+            return False
+        return True  # Default to responding
     except Exception as e:
         print(f"Error in response decision: {e}, defaulting to lenient response")
+        import traceback
+        traceback.print_exc()
         # More lenient default: respond to most things except very short messages
         if len(user_text.split()) <= 2 and '?' not in user_text:
             return False
@@ -468,12 +555,34 @@ def _llm_stream_task(socketio, run_id: str, user_text: str, app):
                     "ts": int(time.time() * 1000)
                 }
 
-                # PRODUCTION TODO: Persist assistant message to database here as well
+                # Persist assistant message to database
+                seq = _next_seq()
                 messages.append(msg)
+
+                try:
+                    from backend.models.message import Message
+                    # Use app context since we're in a background thread
+                    with app.app_context():
+                        msg_record = Message(
+                            id=msg["id"],
+                            room_seq=seq,
+                            sender=msg["sender"],
+                            text=msg["text"],
+                            timestamp=msg["ts"]
+                        )
+                        db.session.add(msg_record)
+                        db.session.commit()
+                except Exception as e:
+                    print(f"Error persisting assistant message to database: {e}")
+                    try:
+                        with app.app_context():
+                            db.session.rollback()
+                    except:
+                        pass
 
                 # Emit the chunk as a complete message
                 socketio.emit("server",
-                    {"type": "message.appended", "room_seq": _next_seq(), "message": msg},
+                    {"type": "message.appended", "room_seq": seq, "message": msg},
                     room=ROOM_ID
                 )
 
@@ -505,6 +614,9 @@ def register_socketio(socketio, app):
         socketio: SocketIO instance
         app: Flask application instance
     """
+    # Load messages from database on startup
+    _load_messages_from_db(app)
+
     allow_guests = app.config.get("ALLOW_GUESTS", False)
 
     @socketio.on("connect")
@@ -601,17 +713,21 @@ def register_socketio(socketio, app):
             seq = _next_seq()
             messages.append(m)
 
-            # PRODUCTION TODO: Persist message to database here
-            from backend.models.message import Message
-            msg_record = Message(
-                id=m["id"],
-                room_seq=seq,
-                sender=m["sender"],
-                text=m["text"],
-                timestamp=m["ts"]
-            )
-            db.session.add(msg_record)
-            db.session.commit()
+            # Persist message to database
+            try:
+                from backend.models.message import Message
+                msg_record = Message(
+                    id=m["id"],
+                    room_seq=seq,
+                    sender=m["sender"],
+                    text=m["text"],
+                    timestamp=m["ts"]
+                )
+                db.session.add(msg_record)
+                db.session.commit()
+            except Exception as e:
+                print(f"Error persisting user message to database: {e}")
+                db.session.rollback()
 
             # Broadcast message
             socketio.emit("server",

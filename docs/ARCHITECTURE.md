@@ -66,11 +66,41 @@ backend/
 ```
 frontend/
 ├── static/
-│   ├── css/             # Stylesheets
-│   ├── js/              # JavaScript modules
-│   └── images/          # Static images
-└── templates/           # HTML pages (future: Jinja2)
+│   ├── css/
+│   │   ├── main.css      # Global styles
+│   │   ├── auth.css      # Authentication pages
+│   │   └── chat.css      # Chat interface & bubbles
+│   ├── js/
+│   │   ├── utils.js      # Utility functions
+│   │   ├── auth.js       # Authentication logic
+│   │   └── chat.js       # Chat & WebSocket logic
+│   └── images/           # Static images
+└── templates/            # Static HTML pages
 ```
+
+### Frontend Chat UI Architecture
+
+**Message Display System:**
+- **Current User**: Blue gradient bubbles aligned right
+- **Other Users**: Purple gradient bubbles aligned left with name labels
+- **AI Assistant (Midori)**: Green gradient bubbles aligned left with "Midori" label
+- **System Messages**: Centered, transparent, italic text
+
+**CSS Architecture:**
+```css
+.msg-wrapper (flexbox container)
+  ├── .msg-label (sender name, optional)
+  └── .msg (the bubble)
+      ├── .user (blue, right-aligned)
+      ├── .other (purple, left-aligned)
+      ├── .assistant (green, left-aligned)
+      └── .meta (transparent, centered)
+```
+
+**JavaScript Message Tracking:**
+- `myMessageIds` Set: Tracks IDs of messages sent by current user
+- Used to distinguish own messages from others
+- Enables proper bubble color/positioning
 
 ## Design Patterns
 
@@ -166,12 +196,31 @@ def authenticate_user(email, password):
 ```
 1. User → Frontend: Type message
 2. Frontend → Backend: WebSocket emit "send.message"
-3. Backend → Backend: Validate & store message
+3. Backend → Database: Persist user message
 4. Backend → All Clients: Broadcast message
-5. Backend → LLM API: Send message for processing
-6. LLM API → Backend: Stream response chunks
-7. Backend → All Clients: Stream AI response
-8. Backend → Backend: Store AI response
+5. Backend → LLM API: Check if AI should respond (decision API call)
+6. If yes:
+   a. Backend → LLM API: Send message for processing with context
+   b. LLM API → Backend: Stream response
+   c. Backend → Backend: Collect full response
+   d. Backend → Backend: Chunk response at natural boundaries
+   e. Backend → Database: Persist each chunk as separate message
+   f. Backend → All Clients: Emit complete chunks with delays
+```
+
+### AI Response Decision Flow
+
+```
+1. User sends message
+2. Check for direct mention (@Midori/@ai) → Respond
+3. If not direct mention:
+   a. Build conversation context (last 6 messages)
+   b. Check if Midori was recently active
+   c. Call LLM decision API with context
+   d. LLM returns YES or NO
+   e. If YES: proceed with response
+   f. If NO: skip response
+4. On error: default to responding for questions/requests
 ```
 
 ## Database Design
@@ -210,12 +259,57 @@ def authenticate_user(email, password):
 - `run.stop`: Stop AI response
 
 **Server → Client:**
-- `room.snapshot`: Initial state
-- `user.joined/left`: User presence
-- `message.appended`: New message
-- `assistant.delta`: AI streaming
-- `assistant.completed`: AI finished
+- `room.snapshot`: Initial state (includes last 200 messages from database)
+- `user.joined/left`: User presence updates
+- `message.appended`: New message from user or AI
+  - Used for both user messages and AI response chunks
+  - Messages are complete (not character-by-character streaming)
+- `assistant.started`: AI assistant started processing
+- `assistant.completed`: AI finished responding
 - `error`: Error notifications
+
+**Note:** The `assistant.delta` event was removed in favor of complete message chunks sent via `message.appended`.
+
+## AI Assistant Architecture
+
+### Response Decision System
+
+The AI assistant ("Midori") uses an intelligent decision-making system to determine when to respond:
+
+**Components:**
+1. **Fast Path**: Direct mentions bypass decision logic
+2. **Context Building**: Gather last 6 messages for context
+3. **Activity Detection**: Check if Midori was recently active
+4. **LLM Decision**: Call LLM API to decide YES/NO
+5. **Fallback Logic**: Default to responding on API errors
+
+**Decision Factors:**
+- Direct mentions (@Midori, Midori)
+- Recent conversational context
+- Whether Midori just asked a question
+- Message content (questions, requests, emotional statements)
+- User interaction patterns
+
+### Response Chunking System
+
+Long AI responses are automatically split into manageable chunks:
+
+**Algorithm:**
+1. Collect full response from LLM
+2. Break into chunks at natural boundaries:
+   - Paragraph breaks (double newlines)
+   - Sentence endings (. ! ?)
+   - Comma breaks (for very long sentences)
+   - Word boundaries (last resort)
+3. Maximum chunk size: ~300 characters
+4. Emit each chunk as separate message
+5. Add 0.3s delay between chunks for readability
+
+**Benefits:**
+- More conversational feel
+- Easier to read on mobile
+- Natural conversation pacing
+- Better message grouping
 
 ### Connection Management
 
@@ -257,17 +351,26 @@ def handle_connect(auth):
 
 ## Scalability Considerations
 
+### Current Implementation
+- ✅ Messages persisted to database
+- ✅ Message history loaded on startup
+- ✅ Last 200 messages kept in memory for performance
+- ❌ Single server instance
+- ❌ No session persistence across servers
+- ❌ No caching layer
+
 ### Current Limitations
-- In-memory message storage (lost on restart)
-- Single server instance
-- No session persistence
-- No caching layer
+- Single server instance (no horizontal scaling)
+- No distributed session management
+- No caching layer for frequently accessed data
+- LLM API calls are blocking (no queue system)
 
 ### Future Improvements
-1. **Message Persistence**
-   - Store messages in database
-   - Implement message history pagination
+1. **Message Management** ✅ (Implemented)
+   - ✅ Store messages in database
+   - Add message history pagination
    - Add message search functionality
+   - Implement message editing/deletion
 
 2. **Session Management**
    - Use Redis for session storage
@@ -403,31 +506,67 @@ config = {
 - SQLite: Simple, zero-config, file-based
 - PostgreSQL: Production-ready, scalable, features
 
+## Implemented Features ✅
+
+1. **Message Persistence**
+   - ✅ Messages saved to database
+   - ✅ Message history loaded on startup
+   - ✅ Last 200 messages kept in memory
+
+2. **Smart AI Assistant**
+   - ✅ Context-aware response decisions
+   - ✅ LLM-based decision making
+   - ✅ Intelligent message chunking
+   - ✅ Named assistant (Midori)
+   - ✅ Emotional awareness
+
+3. **Modern Chat UI**
+   - ✅ Chat bubbles for messages
+   - ✅ Visual distinction between users
+   - ✅ Gradient styling
+   - ✅ Smooth animations
+   - ✅ Character counter
+
 ## Future Enhancements
 
 1. **User Features**
-   - User profiles
-   - Avatar uploads
-   - User settings
+   - User profiles with avatars
+   - User settings/preferences
    - Direct messages
+   - User status (online/away/offline)
+   - Read receipts
 
 2. **Chat Features**
    - Multiple chat rooms
-   - Message reactions
+   - Message reactions/emojis
    - File sharing
    - Message editing/deletion
+   - Message search
+   - Mention notifications
+   - Typing indicators
 
 3. **AI Features**
-   - Multiple AI models
+   - Multiple AI models to choose from
    - Custom AI personalities
    - AI training on chat history
-   - AI moderation
+   - AI content moderation
+   - Voice input/output
+   - Image generation
 
 4. **Admin Features**
    - Admin dashboard
    - User management
-   - Content moderation
-   - Analytics
+   - Content moderation tools
+   - Analytics and metrics
+   - Rate limiting
+   - Ban/mute capabilities
+
+5. **Performance**
+   - Message pagination
+   - Infinite scroll
+   - Image lazy loading
+   - WebP image format
+   - Service workers for offline support
 
 ## Contributing
 

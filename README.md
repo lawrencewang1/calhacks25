@@ -5,11 +5,15 @@ A real-time multiplayer chat application with AI assistant integration, built wi
 ## Features
 
 - 🔐 **User Authentication** - Secure registration and login with JWT tokens
-- 💬 **Real-time Chat** - WebSocket-based instant messaging
-- 🤖 **AI Assistant** - Integrated LLM-powered chatbot
-- 👥 **Multi-user Support** - Multiple users can chat simultaneously
+- 💬 **Real-time Chat** - WebSocket-based instant messaging with modern chat bubbles
+- 🤖 **AI Assistant (Midori)** - Intelligent LLM-powered chatbot with context-aware responses
+- 🧠 **Smart Response Detection** - AI decides when to respond based on conversation context
+- 💾 **Persistent Messages** - Chat history saved to database and restored on server restart
+- 👥 **Multi-user Support** - Multiple users can chat simultaneously with distinct visual styles
 - 📱 **Responsive Design** - Works on desktop and mobile devices
-- 🎨 **Modern UI** - Clean, dark-themed interface
+- 🎨 **Modern UI** - Clean, dark-themed interface with gradient chat bubbles
+- 🎯 **Intelligent Chunking** - Long AI responses broken into readable chunks at natural boundaries
+- 💡 **Contextual Awareness** - AI responds to follow-ups, emotional content, and direct questions
 
 ## Tech Stack
 
@@ -115,10 +119,25 @@ gunicorn --worker-class eventlet -w 1 run:app
    - You'll be redirected to the chat
 
 3. **Chat**
-   - Type messages in the input box
+   - Type messages in the input box (max 500 characters)
    - Press Enter or click Send
-   - Mention the AI with "@ai" or ask direct questions
-   - The AI assistant will respond automatically
+   - Your messages appear as **blue bubbles** on the right
+   - Other users' messages appear as **purple bubbles** on the left
+   - Midori's responses appear as **green bubbles** on the left
+
+4. **Interacting with Midori (AI Assistant)**
+   - **Direct mention**: `@Midori` or `Midori, can you help?`
+   - **Questions**: Ask questions naturally - Midori responds intelligently
+   - **Follow-ups**: Continue conversations without mentioning her name
+   - **Requests**: Use phrases like "could you", "can you", "please help"
+   - **Smart responses**: Midori decides when to respond based on context
+   - **Emotional awareness**: Midori responds to emotional statements
+
+5. **Chat Features**
+   - **Message History**: Previous conversations are saved and restored
+   - **Character Counter**: See remaining characters as you type
+   - **Smooth Animations**: Messages slide in with elegant transitions
+   - **Stop Generation**: Click Stop to interrupt long AI responses
 
 ## API Endpoints
 
@@ -130,17 +149,34 @@ gunicorn --worker-class eventlet -w 1 run:app
 ### WebSocket Events
 
 **Client → Server:**
-- `connect` - Establish WebSocket connection
+- `connect` - Establish WebSocket connection with JWT auth
 - `send.message` - Send a chat message
-- `run.stop` - Stop the AI assistant
+  ```json
+  {
+    "type": "send.message",
+    "client_msg_id": "uuid",
+    "text": "message content"
+  }
+  ```
+- `run.stop` - Stop the AI assistant generation
+  ```json
+  {
+    "type": "run.stop",
+    "run_id": "uuid"
+  }
+  ```
 
 **Server → Client:**
-- `room.snapshot` - Initial state and message history
+- `room.snapshot` - Initial state with message history (on connect)
+  - Includes last 200 messages from database
+  - Current user list
+  - Room sequence number
 - `user.joined` - User joined notification
 - `user.left` - User left notification
-- `message.appended` - New message from user
+- `message.appended` - New message from user or assistant
+  - Used for both user messages and AI response chunks
+  - Messages are complete (not streamed character-by-character)
 - `assistant.started` - AI assistant started processing
-- `assistant.delta` - AI assistant streaming response
 - `assistant.completed` - AI assistant finished
 - `error` - Error notification
 
@@ -155,14 +191,56 @@ Create a `.env` file in the root directory:
 JWT_SECRET_KEY=your-secret-key-here
 PORT=5000
 
+# Database Configuration
+SQLALCHEMY_DATABASE_URI=sqlite:///chatbot.db
+
 # LLM API Configuration
-LLM_API_URL=https://janitorai.com/hackathon/
+LLM_API_URL=https://janitorai.com/hackathon/completions
 LLM_AUTH_TOKEN=your-llm-token-here
 MAX_OUT_TOKENS=400
+
+# AI Assistant Configuration
+SYSTEM_PROMPT=Your custom system prompt (optional)
+CHAT_CONTEXT_MESSAGES=50
+MESSAGE_HISTORY_LIMIT=200
+MAX_MESSAGE_LENGTH=500
 
 # Feature Flags
 ALLOW_GUESTS=false
 ```
+
+### Configuration Details
+
+- **JWT_SECRET_KEY**: Secret key for JWT token signing (required in production)
+- **LLM_API_URL**: URL for the LLM API endpoint
+- **LLM_AUTH_TOKEN**: Authentication token for LLM API
+- **MAX_OUT_TOKENS**: Maximum tokens per AI response (default: 400)
+- **SYSTEM_PROMPT**: Custom system prompt for Midori (see `config.py` for default)
+- **CHAT_CONTEXT_MESSAGES**: Number of recent messages sent to AI for context (default: 50)
+- **MESSAGE_HISTORY_LIMIT**: Maximum messages stored in memory (default: 200)
+- **ALLOW_GUESTS**: Allow unauthenticated connections (default: false)
+
+### AI Assistant (Midori) Behavior
+
+Midori uses intelligent decision-making to determine when to respond:
+
+**Will Respond To:**
+- Direct mentions: `@Midori`, `Midori, ...`
+- Questions following her recent activity (follow-ups)
+- Direct requests: "could you", "can you", "help me"
+- Emotional statements when no one else is responding
+- General questions directed at the group
+
+**Will NOT Respond To:**
+- User-to-user greetings: "hey John!"
+- Short exchanges between specific users
+- Messages clearly directed at another user
+- Small talk when users are conversing with each other
+
+**Response Format:**
+- Long responses are automatically chunked at natural boundaries (paragraphs, sentences)
+- Each chunk appears as a separate message with a 0.3s delay
+- Maximum chunk size: ~300 characters
 
 ### Security Notes
 
@@ -174,6 +252,7 @@ ALLOW_GUESTS=false
 - Implement rate limiting
 - Add proper logging
 - Use a production WSGI server
+- Regularly backup the SQLite database
 
 ## Development
 
@@ -221,6 +300,28 @@ mypy backend/
 **Database errors**
 - Delete `instance/chatbot.db`
 - Restart the application to recreate database
+- Check database permissions
+
+**"Working outside of application context"**
+- This usually happens in background threads
+- The code should use `with app.app_context():` for database operations
+- Already handled in the current implementation
+
+**Midori not responding**
+- Check if LLM API credentials are set correctly
+- Review console logs for decision-making details
+- Ensure `LLM_API_URL` is correct
+- Try mentioning Midori directly with `@Midori`
+
+**Messages not persisting after restart**
+- Check that database migrations ran successfully
+- Verify `SQLALCHEMY_DATABASE_URI` is set correctly
+- Check write permissions for database file
+
+**Chat bubbles not displaying correctly**
+- Clear browser cache
+- Check browser console for JavaScript errors
+- Ensure all CSS files are loaded correctly
 
 ## Contributing
 
