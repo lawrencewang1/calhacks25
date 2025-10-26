@@ -442,7 +442,7 @@ def register_socketio(socketio, app):
             # Start LLM stream in background thread
             threading.Thread(
                 target=_llm_stream_task,
-                args=(socketio, run_id, text, app),
+                args=(socketio, run_id, f"user:{clients.get(request.sid, {}).get('name', 'anon')}, text: " + text, app),
                 daemon=True
             ).start()
 
