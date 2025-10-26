@@ -19,7 +19,13 @@ class Config:
     """Base configuration with default settings."""
 
     # Flask Core Settings
-    SECRET_KEY = os.getenv("SECRET_KEY", os.urandom(32))
+    # SECURITY: Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    if not SECRET_KEY:
+        raise ValueError(
+            "SECRET_KEY must be set in environment variables! "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
 
     # Database Configuration
     SQLALCHEMY_DATABASE_URI = os.getenv(
@@ -33,7 +39,13 @@ class Config:
     }
 
     # JWT Configuration
-    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", os.urandom(32))
+    # SECURITY: Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+    if not JWT_SECRET_KEY:
+        raise ValueError(
+            "JWT_SECRET_KEY must be set in environment variables! "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=30)
     JWT_TOKEN_LOCATION = ["headers"]
@@ -52,7 +64,13 @@ class Config:
         "LLM_API_URL",
         "https://janitorai.com/hackathon/completions"
     )
-    LLM_AUTH_TOKEN = os.getenv("LLM_AUTH_TOKEN", "calhacks2047")
+    # SECURITY: LLM_AUTH_TOKEN must be set in environment variables
+    LLM_AUTH_TOKEN = os.getenv("LLM_AUTH_TOKEN")
+    if not LLM_AUTH_TOKEN:
+        raise ValueError(
+            "LLM_AUTH_TOKEN must be set in environment variables! "
+            "This is required for AI assistant functionality."
+        )
     MAX_OUT_TOKENS = int(os.getenv("MAX_OUT_TOKENS", "400"))
 
     # Feature Flags
@@ -117,6 +135,11 @@ class DevelopmentConfig(Config):
     CORS_ORIGINS = ["*"]
     SOCKETIO_CORS_ALLOWED_ORIGINS = "*"
 
+    # Development defaults for secrets (override parent validation)
+    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-" + "x"*48)
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-jwt-secret-" + "x"*48)
+    LLM_AUTH_TOKEN = os.getenv("LLM_AUTH_TOKEN", "dev-llm-token")
+
 
 class ProductionConfig(Config):
     """Production environment configuration."""
@@ -154,6 +177,11 @@ class TestingConfig(Config):
 
     # Short token expiry for testing
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=5)
+
+    # Testing defaults for secrets (override parent validation)
+    SECRET_KEY = "test-secret-key"
+    JWT_SECRET_KEY = "test-jwt-secret"
+    LLM_AUTH_TOKEN = "test-llm-token"
 
 
 # Configuration dictionary

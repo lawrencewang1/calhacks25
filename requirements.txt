@@ -24,6 +24,11 @@ httpx==0.28.1
 # Environment variables
 python-dotenv==1.0.1
 
+# Security
+Flask-Limiter==3.8.0  # Rate limiting
+email-validator==2.2.0  # Email validation
+bleach==6.2.0  # HTML sanitization for XSS protection
+
 # Development Dependencies (optional)
 # Uncomment for development
 # pytest==8.3.4

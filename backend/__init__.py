@@ -6,12 +6,16 @@ Flask application instances with all necessary configuration and extensions.
 """
 
 import os
+import logging
 from flask import Flask, send_from_directory, abort
 
 from config import get_config
-from backend.extensions import db, jwt, cors, socketio, init_extensions
+from backend.extensions import db, jwt, cors, socketio, limiter, init_extensions
 from backend.routes import auth_bp
 from backend.sockets.handlers import register_socketio
+from backend.utils.logging_config import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(config_name=None):
@@ -39,6 +43,9 @@ def create_app(config_name=None):
     config_class = get_config()
     app.config.from_object(config_class)
 
+    # Setup logging
+    setup_logging(app)
+
     # Initialize extensions
     init_extensions(app)
 
@@ -51,11 +58,11 @@ def create_app(config_name=None):
     # Register routes
     register_routes(app)
 
-    # Print registered routes for debugging
-    print("\nRegistered routes:")
+    # Log registered routes for debugging
+    logger.info("Registered routes:")
     for rule in app.url_map.iter_rules():
         methods = ','.join(sorted(rule.methods - {'HEAD', 'OPTIONS'}))
-        print(f"  {rule.rule:40s} {methods:20s} -> {rule.endpoint}")
+        logger.debug(f"  {rule.rule:40s} {methods:20s} -> {rule.endpoint}")
 
     return app
 
@@ -96,4 +103,4 @@ def register_routes(app):
 
 
 # Export commonly used objects
-__all__ = ["create_app", "socketio", "db"]
+__all__ = ["create_app", "socketio", "db", "limiter"]

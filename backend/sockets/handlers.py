@@ -37,10 +37,8 @@ from backend.models.room import Room
 from backend.models.message import Message
 from backend.models.room_ban import RoomBan
 
-# PRODUCTION TODO: Add thread locking for room_seq to prevent race conditions
-
 class RoomState:
-    """Manages state for a single chatroom."""
+    """Manages state for a single chatroom with thread-safe operations."""
     def __init__(self, room_id: str):
         self.room_id = room_id
         self.room_seq = 0
@@ -48,11 +46,13 @@ class RoomState:
         self.clients = {}  # sid -> {"name": ..., "user_id": ...}
         self.active_runs = {}  # run_id -> {"stop": False}
         self.messages_loaded = False
+        self._seq_lock = threading.Lock()  # Thread lock for room_seq
 
     def next_seq(self):
-        """Generate the next sequence number for room events."""
-        self.room_seq += 1
-        return self.room_seq
+        """Generate the next sequence number for room events (thread-safe)."""
+        with self._seq_lock:
+            self.room_seq += 1
+            return self.room_seq
 
     def snapshot(self):
         """Generate a snapshot of the current room state."""
@@ -66,16 +66,19 @@ class RoomState:
 
 # Global dictionary mapping room_id -> RoomState
 rooms = {}
+rooms_lock = threading.Lock()  # Thread lock for rooms dictionary
 
 # Track which room each client is currently in: sid -> room_id
 client_rooms = {}
+client_rooms_lock = threading.Lock()  # Thread lock for client_rooms dictionary
 
 # Track user info for each connected client: sid -> {"name": ..., "user_id": ...}
 client_info = {}
+client_info_lock = threading.Lock()  # Thread lock for client_info dictionary
 
 def get_room_state(room_id: str) -> RoomState:
     """
-    Get or create room state for the given room_id.
+    Get or create room state for the given room_id (thread-safe).
 
     Args:
         room_id: The room ID
@@ -83,9 +86,10 @@ def get_room_state(room_id: str) -> RoomState:
     Returns:
         RoomState: The room state object
     """
-    if room_id not in rooms:
-        rooms[room_id] = RoomState(room_id)
-    return rooms[room_id]
+    with rooms_lock:
+        if room_id not in rooms:
+            rooms[room_id] = RoomState(room_id)
+        return rooms[room_id]
 
 
 def _is_user_banned(app, room_id: str, user_id: int) -> tuple[bool, str]:

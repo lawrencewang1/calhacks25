@@ -6,11 +6,11 @@ import re
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from backend.models.user import User
-from backend.extensions import db
+from backend.extensions import db, limiter
+from backend.utils.validators import validate_email_format, validate_password_strength, sanitize_text
 
 auth_bp = Blueprint("auth", __name__)
 
-# PRODUCTION TODO: Add input sanitization to prevent XSS and injection attacks
 # PRODUCTION TODO: Consider adding CAPTCHA for registration to prevent bot signups
 
 def _slug_from_email(email: str) -> str:
@@ -20,20 +20,25 @@ def _slug_from_email(email: str) -> str:
     return base
 
 @auth_bp.post("/register")
+@limiter.limit("5 per hour")  # Strict limit to prevent bot signups
 def register():
     data = request.get_json() or {}
-    email, password = data.get("email"), data.get("password")
-    want_name = (data.get("name") or "").strip()
+    email = sanitize_text(data.get("email"), max_length=120)
+    password = data.get("password")
+    want_name = sanitize_text(data.get("name"), max_length=40)
 
     if not email or not password:
         return jsonify({"msg": "email and password required"}), 400
 
-    # PRODUCTION TODO: Add email validation (regex or library like email-validator)
-    # Example: if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-    #              return jsonify({"msg": "invalid email format"}), 400
+    # Validate email format
+    is_valid_email, email_error = validate_email_format(email)
+    if not is_valid_email:
+        return jsonify({"msg": f"invalid email: {email_error}"}), 400
 
-    # PRODUCTION TODO: Add password strength requirements
-    # Example: minimum length, require special characters, etc.
+    # Validate password strength
+    is_valid_password, password_error = validate_password_strength(password)
+    if not is_valid_password:
+        return jsonify({"msg": password_error}), 400
 
     if User.query.filter_by(email=email).first():
         return jsonify({"msg": "user already exists"}), 400
@@ -62,6 +67,7 @@ def register():
     return jsonify({"access_token": token, "user": {"id": u.id, "email": u.email, "name": u.name}}), 201
 
 @auth_bp.post("/login")
+@limiter.limit("10 per minute")  # Prevent brute force attacks
 def login():
     data = request.get_json() or {}
     email, password = data.get("email"), data.get("password")
@@ -105,8 +111,13 @@ def update_profile():
     updated = False
 
     # Update email
-    new_email = data.get("email", "").strip()
+    new_email = sanitize_text(data.get("email"), max_length=120)
     if new_email and new_email != u.email:
+        # Validate email format
+        is_valid_email, email_error = validate_email_format(new_email)
+        if not is_valid_email:
+            return jsonify({"msg": f"invalid email: {email_error}"}), 400
+
         # Check if email is already taken
         if User.query.filter_by(email=new_email).first():
             return jsonify({"msg": "email already in use"}), 400
@@ -114,7 +125,7 @@ def update_profile():
         updated = True
 
     # Update name
-    new_name = data.get("name", "").strip()
+    new_name = sanitize_text(data.get("name"), max_length=40)
     if new_name and new_name != u.name:
         # Check if name is already taken
         if User.query.filter_by(name=new_name).first():
@@ -141,6 +152,7 @@ def update_profile():
 
 @auth_bp.put("/password")
 @jwt_required()
+@limiter.limit("5 per hour")  # Prevent password brute forcing
 def change_password():
     """Change current user's password."""
     user_id = get_jwt_identity()
@@ -160,9 +172,10 @@ def change_password():
     if not u.check_password(current_password):
         return jsonify({"msg": "current password is incorrect"}), 401
 
-    # PRODUCTION TODO: Add password strength requirements
-    if len(new_password) < 6:
-        return jsonify({"msg": "new password must be at least 6 characters"}), 400
+    # Validate new password strength
+    is_valid_password, password_error = validate_password_strength(new_password)
+    if not is_valid_password:
+        return jsonify({"msg": password_error}), 400
 
     # Update password
     u.set_password(new_password)

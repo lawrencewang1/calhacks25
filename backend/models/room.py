@@ -6,11 +6,11 @@ class Room(db.Model):
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(100), nullable=False)
-    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     created_at = db.Column(db.Integer, nullable=False, default=lambda: int(time.time() * 1000))
-    is_active = db.Column(db.Boolean, default=True, nullable=False)
-    is_official = db.Column(db.Boolean, default=False, nullable=False)  # True for official/global rooms
-    is_public = db.Column(db.Boolean, default=True, nullable=False)  # True for public rooms (visible in browser)
+    is_active = db.Column(db.Boolean, default=True, nullable=False, index=True)
+    is_official = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    is_public = db.Column(db.Boolean, default=True, nullable=False, index=True)
 
     # Relationship to messages
     messages = db.relationship('Message', backref='room', lazy=True, cascade='all, delete-orphan')

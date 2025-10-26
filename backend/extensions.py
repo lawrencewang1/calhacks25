@@ -9,6 +9,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from flask_socketio import SocketIO
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # Initialize extensions
 # These will be initialized in the application factory
@@ -16,6 +18,11 @@ db = SQLAlchemy()
 jwt = JWTManager()
 cors = CORS()
 socketio = SocketIO()
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://"
+)
 
 
 def init_extensions(app):
@@ -36,6 +43,9 @@ def init_extensions(app):
 
     # Initialize CORS
     cors.init_app(app, supports_credentials=True)
+
+    # Initialize rate limiter
+    limiter.init_app(app)
 
     # Initialize SocketIO
     socketio.init_app(
