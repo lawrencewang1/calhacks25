@@ -530,7 +530,7 @@ function updatePlayerList(players) {
  */
 function updateVotingPlayerList(players) {
   votePlayerList.innerHTML = '';
-  players.filter(p => p.is_active && !p.is_ai && p.id !== currentPlayerId).forEach(player => {
+  players.filter(p => p.is_active && p.id !== currentPlayerId).forEach(player => {
     const card = document.createElement('div');
     card.className = 'vote-player-card';
 
