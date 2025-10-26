@@ -90,6 +90,7 @@ class Config:
         Focus on maintaining a cooperative, friendly, and respectful environment.
 
         Once again, if you do not need to respond, do not respond.
+        ABSOLUTELY DO NOT INTERRUPT HUMAN CONVERSATION.
         """
     )
 
