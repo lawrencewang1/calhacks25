@@ -5,7 +5,7 @@ This module handles all Socket.IO events including:
 - User connections and authentication
 - Multi-room support (create, join, leave, switch rooms)
 - Message sending and broadcasting per room
-- AI assistant (Midori) response generation with smart decision-making
+- AI assistant (Assistant) response generation with smart decision-making
 - Message persistence to database
 - Message chunking for better readability
 
@@ -415,8 +415,8 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
     Determine if the bot should respond to a message.
 
     Uses LLM API call with conversation context to intelligently decide
-    if Midori should respond. Considers recent conversation history and
-    whether Midori was recently active.
+    if Assistant should respond. Considers recent conversation history and
+    whether Assistant was recently active.
 
     Args:
         user_text: The user's message text
@@ -430,7 +430,7 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
     text_lower = user_text.lower()
 
     # Fast path: Always respond if directly mentioned by name or tag
-    mentions = ['@midori', '@ai']
+    mentions = ['@Assistant', '@ai']
     if any(mention in text_lower for mention in mentions):
         print(f"Bot responding: directly mentioned")
         return True
@@ -443,7 +443,7 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
         sender = msg.get('sender', 'unknown')
         # Format sender nicely
         if sender == 'assistant':
-            formatted_sender = 'Midori (AI assistant)'
+            formatted_sender = 'Assistant (AI assistant)'
         elif sender.startswith('user:'):
             formatted_sender = sender[5:]  # Remove 'user:' prefix
         else:
@@ -454,11 +454,11 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
     # Check if bot was recently active
     bot_recently_active = any(msg.get('sender') == 'assistant' for msg in recent[-3:])
 
-    # Check if Midori just asked a question
-    midori_just_asked = False
+    # Check if Assistant just asked a question
+    Assistant_just_asked = False
     if recent and recent[-1].get('sender') == 'assistant':
         last_bot_msg = recent[-1].get('text', '')
-        midori_just_asked = '?' in last_bot_msg
+        Assistant_just_asked = '?' in last_bot_msg
 
     context_str = '\n'.join(conversation_history) if conversation_history else '(No recent messages)'
 
@@ -467,16 +467,16 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
         # Build adaptive guidelines based on context
         guidelines = [
             "- RESPOND if the message is a question or request",
-            "- RESPOND if it's a follow-up to something Midori said or asked",
+            "- RESPOND if it's a follow-up to something Assistant said or asked",
             "- RESPOND to emotional statements (loneliness, sadness, excitement) as people want engagement",
             "- RESPOND to statements that seem directed at the group when no one else has responded"
         ]
 
         if bot_recently_active:
-            guidelines.insert(0, "- IMPORTANT: Midori was just active, so this is likely a follow-up → RESPOND unless it's clearly directed at another user")
+            guidelines.insert(0, "- IMPORTANT: Assistant was just active, so this is likely a follow-up → RESPOND unless it's clearly directed at another user")
 
-        if midori_just_asked:
-            guidelines.insert(0, "- CRITICAL: Midori just asked a question, and this is the user's response → DEFINITELY RESPOND")
+        if Assistant_just_asked:
+            guidelines.insert(0, "- CRITICAL: Assistant just asked a question, and this is the user's response → DEFINITELY RESPOND")
 
         guidelines.extend([
             "- DON'T respond if users are greeting each other specifically (like 'hey John!')",
@@ -484,7 +484,7 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
             "- When uncertain, lean towards RESPONDING to keep the conversation alive"
         ])
 
-        decision_prompt = f"""You are deciding if Midori (an AI assistant) should respond in a group chat.
+        decision_prompt = f"""You are deciding if Assistant (an AI assistant) should respond in a group chat.
 
 CURRENT MESSAGE:
 {user_name}: "{user_text}"
@@ -495,7 +495,7 @@ RECENT CONVERSATION:
 GUIDELINES:
 {chr(10).join(guidelines)}
 
-Should Midori respond?
+Should Assistant respond?
 Reply with ONLY: YES or NO"""
 
         with httpx.Client() as client:

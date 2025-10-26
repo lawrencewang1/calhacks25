@@ -6,7 +6,7 @@ A real-time multiplayer chat application with AI assistant integration, built wi
 
 - 🔐 **User Authentication** - Secure registration and login with JWT tokens
 - 💬 **Real-time Chat** - WebSocket-based instant messaging with modern chat bubbles
-- 🤖 **AI Assistant (Midori)** - Intelligent LLM-powered chatbot with context-aware responses
+- 🤖 **AI Assistant (Assistant)** - Intelligent LLM-powered chatbot with context-aware responses
 - 🧠 **Smart Response Detection** - AI decides when to respond based on conversation context
 - 💾 **Persistent Messages** - Chat history saved to database and restored on server restart
 - 👥 **Multi-user Support** - Multiple users can chat simultaneously with distinct visual styles
@@ -123,15 +123,15 @@ gunicorn --worker-class eventlet -w 1 run:app
    - Press Enter or click Send
    - Your messages appear as **blue bubbles** on the right
    - Other users' messages appear as **purple bubbles** on the left
-   - Midori's responses appear as **green bubbles** on the left
+   - Assistant's responses appear as **green bubbles** on the left
 
-4. **Interacting with Midori (AI Assistant)**
-   - **Direct mention**: `@Midori` or `Midori, can you help?`
-   - **Questions**: Ask questions naturally - Midori responds intelligently
+4. **Interacting with Assistant (AI Assistant)**
+   - **Direct mention**: `@Assistant` or `Assistant, can you help?`
+   - **Questions**: Ask questions naturally - Assistant responds intelligently
    - **Follow-ups**: Continue conversations without mentioning her name
    - **Requests**: Use phrases like "could you", "can you", "please help"
-   - **Smart responses**: Midori decides when to respond based on context
-   - **Emotional awareness**: Midori responds to emotional statements
+   - **Smart responses**: Assistant decides when to respond based on context
+   - **Emotional awareness**: Assistant responds to emotional statements
 
 5. **Chat Features**
    - **Message History**: Previous conversations are saved and restored
@@ -215,17 +215,17 @@ ALLOW_GUESTS=false
 - **LLM_API_URL**: URL for the LLM API endpoint
 - **LLM_AUTH_TOKEN**: Authentication token for LLM API
 - **MAX_OUT_TOKENS**: Maximum tokens per AI response (default: 400)
-- **SYSTEM_PROMPT**: Custom system prompt for Midori (see `config.py` for default)
+- **SYSTEM_PROMPT**: Custom system prompt for Assistant (see `config.py` for default)
 - **CHAT_CONTEXT_MESSAGES**: Number of recent messages sent to AI for context (default: 50)
 - **MESSAGE_HISTORY_LIMIT**: Maximum messages stored in memory (default: 200)
 - **ALLOW_GUESTS**: Allow unauthenticated connections (default: false)
 
-### AI Assistant (Midori) Behavior
+### AI Assistant (Assistant) Behavior
 
-Midori uses intelligent decision-making to determine when to respond:
+Assistant uses intelligent decision-making to determine when to respond:
 
 **Will Respond To:**
-- Direct mentions: `@Midori`, `Midori, ...`
+- Direct mentions: `@Assistant`, `Assistant, ...`
 - Questions following her recent activity (follow-ups)
 - Direct requests: "could you", "can you", "help me"
 - Emotional statements when no one else is responding
@@ -307,11 +307,11 @@ mypy backend/
 - The code should use `with app.app_context():` for database operations
 - Already handled in the current implementation
 
-**Midori not responding**
+**Assistant not responding**
 - Check if LLM API credentials are set correctly
 - Review console logs for decision-making details
 - Ensure `LLM_API_URL` is correct
-- Try mentioning Midori directly with `@Midori`
+- Try mentioning Assistant directly with `@Assistant`
 
 **Messages not persisting after restart**
 - Check that database migrations ran successfully

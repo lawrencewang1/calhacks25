@@ -83,7 +83,7 @@ frontend/
 **Message Display System:**
 - **Current User**: Blue gradient bubbles aligned right
 - **Other Users**: Purple gradient bubbles aligned left with name labels
-- **AI Assistant (Midori)**: Green gradient bubbles aligned left with "Midori" label
+- **AI Assistant (Assistant)**: Green gradient bubbles aligned left with "Assistant" label
 - **System Messages**: Centered, transparent, italic text
 
 **CSS Architecture:**
@@ -212,10 +212,10 @@ def authenticate_user(email, password):
 
 ```
 1. User sends message
-2. Check for direct mention (@Midori/@ai) → Respond
+2. Check for direct mention (@Assistant/@ai) → Respond
 3. If not direct mention:
    a. Build conversation context (last 6 messages)
-   b. Check if Midori was recently active
+   b. Check if Assistant was recently active
    c. Call LLM decision API with context
    d. LLM returns YES or NO
    e. If YES: proceed with response
@@ -274,19 +274,19 @@ def authenticate_user(email, password):
 
 ### Response Decision System
 
-The AI assistant ("Midori") uses an intelligent decision-making system to determine when to respond:
+The AI assistant ("Assistant") uses an intelligent decision-making system to determine when to respond:
 
 **Components:**
 1. **Fast Path**: Direct mentions bypass decision logic
 2. **Context Building**: Gather last 6 messages for context
-3. **Activity Detection**: Check if Midori was recently active
+3. **Activity Detection**: Check if Assistant was recently active
 4. **LLM Decision**: Call LLM API to decide YES/NO
 5. **Fallback Logic**: Default to responding on API errors
 
 **Decision Factors:**
-- Direct mentions (@Midori, Midori)
+- Direct mentions (@Assistant, Assistant)
 - Recent conversational context
-- Whether Midori just asked a question
+- Whether Assistant just asked a question
 - Message content (questions, requests, emotional statements)
 - User interaction patterns
 
@@ -517,7 +517,7 @@ config = {
    - ✅ Context-aware response decisions
    - ✅ LLM-based decision making
    - ✅ Intelligent message chunking
-   - ✅ Named assistant (Midori)
+   - ✅ Named assistant (Assistant)
    - ✅ Emotional awareness
 
 3. **Modern Chat UI**

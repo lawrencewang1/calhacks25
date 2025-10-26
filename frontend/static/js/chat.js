@@ -292,8 +292,8 @@ function log(line, cls = '', sender = null, ts = null) {
 
     const senderName = document.createElement('span');
     senderName.className = 'msg-sender-name';
-    // Display "Midori" for assistant, otherwise show sender name
-    senderName.textContent = cls === 'assistant' ? 'Midori' : sender;
+    // Display "Assistant" for assistant, otherwise show sender name
+    senderName.textContent = cls === 'assistant' ? 'Assistant' : sender;
     label.appendChild(senderName);
 
     // Always add timestamp when showing sender name
@@ -438,7 +438,7 @@ function logDm(line, cls = '', sender = null, ts = null) {
 
     const senderName = document.createElement('span');
     senderName.className = 'msg-sender-name';
-    senderName.textContent = cls === 'assistant' ? 'Midori' : sender;
+    senderName.textContent = cls === 'assistant' ? 'Assistant' : sender;
     label.appendChild(senderName);
 
     if (ts) {
@@ -955,7 +955,7 @@ function connectSocket() {
           let cls, sender;
           if (x.sender === 'assistant') {
             cls = 'assistant';
-            sender = 'Midori';
+            sender = 'Assistant';
           } else if (myMessageIds.has(x.id)) {
             cls = 'user';
             sender = null; // Don't show our own name
@@ -1000,7 +1000,7 @@ function connectSocket() {
         let cls, sender;
         if (m.message.sender === 'assistant') {
           cls = 'assistant';
-          sender = 'Midori';
+          sender = 'Assistant';
         } else if (myMessageIds.has(m.message.id)) {
           cls = 'user';
           sender = null; // Don't show our own name
@@ -1026,7 +1026,7 @@ function connectSocket() {
 
       case 'dm.message':
         // Received DM response from bot
-        logDm(m.message.text, 'assistant', 'Midori', m.message.ts);
+        logDm(m.message.text, 'assistant', 'Assistant', m.message.ts);
         break;
 
       case 'dm.history':
@@ -1038,7 +1038,7 @@ function connectSocket() {
           let cls, sender;
           if (msg.sender === 'assistant') {
             cls = 'assistant';
-            sender = 'Midori';
+            sender = 'Assistant';
           } else {
             cls = 'user';
             sender = 'You';
