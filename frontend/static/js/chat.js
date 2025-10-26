@@ -853,9 +853,10 @@ function connectSocket() {
   if (!token) {
     setStatus('not authenticated');
     log('! No access token found. Please login.', 'meta');
-    // Redirect to login only if no token exists
+    // Redirect to login with current page as redirect parameter
     setTimeout(() => {
-      window.location.href = 'login.html';
+      const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `login.html?redirect=${redirectUrl}`;
     }, 2000);
     return;
   }
@@ -928,9 +929,10 @@ function connectSocket() {
       // Clear invalid token
       saveToken(null);
 
-      // Redirect to login after a short delay
+      // Redirect to login with current page as redirect parameter
       setTimeout(() => {
-        window.location.href = 'login.html';
+        const redirectUrl = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `login.html?redirect=${redirectUrl}`;
       }, 2000);
     } else {
       // Network error - attempt reconnection

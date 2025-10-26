@@ -36,20 +36,30 @@
   <script src="js/utils.js"></script>
   <script src="js/auth.js"></script>
   <script>
+    // Get redirect URL from query parameter
+    function getRedirectUrl() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirect = urlParams.get('redirect');
+      return redirect ? decodeURIComponent(redirect) : 'chat.html';
+    }
+
     // Check for existing token and auto-login
     (async function checkAutoLogin() {
       const token = getToken();
       if (token) {
         setAuthMsg('Already logged in. Redirecting...');
         setTimeout(() => {
-          window.location.href = 'chat.html';
+          window.location.href = getRedirectUrl();
         }, 500);
       }
     })();
 
-    // Back to login button
+    // Back to login button - preserve redirect parameter
     $('backToLogin').onclick = () => {
-      window.location.href = 'login.html';
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirect = urlParams.get('redirect');
+      const loginUrl = redirect ? `login.html?redirect=${encodeURIComponent(redirect)}` : 'login.html';
+      window.location.href = loginUrl;
     };
 
     // Handle form submission

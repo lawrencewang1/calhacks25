@@ -46,9 +46,11 @@ async function doLogin() {
 
     setAuthMsg('Logged in. Redirecting...');
 
-    // Redirect to chat page
+    // Redirect to the requested page or default to chat
     setTimeout(() => {
-      window.location.href = 'chat.html';
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirect = urlParams.get('redirect');
+      window.location.href = redirect ? decodeURIComponent(redirect) : 'chat.html';
     }, 500);
   } catch (e) {
     setAuthMsg('Login error: ' + e.message, true);
@@ -95,15 +97,20 @@ async function doRegister() {
       saveToken(token);
       console.log('Token saved to localStorage');
       console.log('Verification - token in localStorage:', localStorage.getItem('access_token') ? 'present' : 'missing');
-      setAuthMsg('Account created! Redirecting to chat...');
+      setAuthMsg('Account created! Redirecting...');
       setTimeout(() => {
-        window.location.href = 'chat.html';
+        const urlParams = new URLSearchParams(window.location.search);
+        const redirect = urlParams.get('redirect');
+        window.location.href = redirect ? decodeURIComponent(redirect) : 'chat.html';
       }, 1000);
     } else {
       console.warn('No token received from registration!');
       setAuthMsg('Account created! Redirecting to login...');
       setTimeout(() => {
-        window.location.href = 'login.html';
+        const urlParams = new URLSearchParams(window.location.search);
+        const redirect = urlParams.get('redirect');
+        const loginUrl = redirect ? `login.html?redirect=${encodeURIComponent(redirect)}` : 'login.html';
+        window.location.href = loginUrl;
       }, 1000);
     }
   } catch (e) {

@@ -24,13 +24,20 @@
 
     <div class="meta" id="authMsg"></div>
     <div class="meta">
-      Don't have an account? <a href="register.html" class="link">Create one</a>
+      Don't have an account? <a href="#" class="link" id="registerLink">Create one</a>
     </div>
   </div>
 
   <script src="js/utils.js"></script>
   <script src="js/auth.js"></script>
   <script>
+    // Get redirect URL from query parameter
+    function getRedirectUrl() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirect = urlParams.get('redirect');
+      return redirect ? decodeURIComponent(redirect) : 'chat.html';
+    }
+
     // Check for existing token and auto-login
     (async function checkAutoLogin() {
       const token = getToken();
@@ -42,7 +49,7 @@
           if (response && response.user) {
             setAuthMsg('Session valid! Redirecting...');
             setTimeout(() => {
-              window.location.href = 'chat.html';
+              window.location.href = getRedirectUrl();
             }, 500);
             return;
           }
@@ -57,6 +64,15 @@
 
     // Set up login button
     $('login').onclick = doLogin;
+
+    // Set up register link to preserve redirect parameter
+    $('registerLink').onclick = (e) => {
+      e.preventDefault();
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirect = urlParams.get('redirect');
+      const registerUrl = redirect ? `register.html?redirect=${encodeURIComponent(redirect)}` : 'register.html';
+      window.location.href = registerUrl;
+    };
 
     // Allow Enter key to submit on email field
     $('email').addEventListener('keydown', (e) => {
