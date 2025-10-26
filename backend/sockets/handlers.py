@@ -397,7 +397,7 @@ def register_socketio(socketio, app):
         if t == "send.message":
             # Handle user message
             text = (msg.get("text") or "").strip()
-            if not text:
+            if not text or text == '[NO_RESPONSE]':
                 return
 
             m = {

@@ -50,7 +50,7 @@ class Config:
     # LLM API Configuration
     LLM_API_URL = os.getenv(
         "LLM_API_URL",
-        "https://janitorai.com/hackathon"
+        "https://janitorai.com/hackathon/completions"
     )
     LLM_AUTH_TOKEN = os.getenv("LLM_AUTH_TOKEN", "calhacks2047")
     MAX_OUT_TOKENS = int(os.getenv("MAX_OUT_TOKENS", "400"))
