@@ -91,6 +91,7 @@ class Config:
 
         Respond Naturally and at the Right Time:
         - ONLY respond when directly mentioned (@chatbot, chatbot, @ai, ai, etc.) or when a question clearly needs your input.
+        - NEVER RESPOND WHEN YOU ARE NOT BEING TALKED TO, USER MUST SPECIFICALLY BE TALKING TO YOU
         - DO NOT interrupt conversations between users.
         - If users are chatting with each other (greetings, short exchanges, etc.), stay silent.
         - Watch for conversational patterns - if two users are going back and forth, don't jump in.
