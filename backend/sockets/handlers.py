@@ -442,9 +442,27 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
     text_lower = user_text.lower()
 
     # Fast path: Always respond if directly mentioned by name or tag
-    mentions = ['@Assistant', '@ai']
-    if any(mention in text_lower for mention in mentions):
-        print(f"Bot responding: directly mentioned")
+    # Check for @mentions first
+    if '@assistant' in text_lower or '@ai' in text_lower:
+        print(f"Bot responding: directly mentioned with @")
+        return True
+
+    # Check for word-boundary mentions (assistant/ai as separate words)
+    if re.search(r'\bassistant\b', text_lower) or re.search(r'\bai\b', text_lower):
+        print(f"Bot responding: directly mentioned by name")
+        return True
+
+    # Check for indirect mentions/references to the bot
+    indirect_mentions = [
+        r'\bbot\b',
+        r'\bhelp\s+me\b',
+        r'\banyone\s+know\b',
+        r'\bcan\s+someone\b',
+        r'\bdoes\s+anyone\b',
+        r'\bwhat\s+(do|does|should)\s+(you|we|i)\b'
+    ]
+    if any(re.search(pattern, text_lower) for pattern in indirect_mentions):
+        print(f"Bot responding: indirect mention detected")
         return True
 
     # Build conversation context for LLM
@@ -463,9 +481,6 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
 
         conversation_history.append(f"{formatted_sender}: {msg.get('text', '')}")
 
-    # Check if bot was recently active
-    bot_recently_active = any(msg.get('sender') == 'assistant' for msg in recent[-3:])
-
     # Check if Assistant just asked a question
     Assistant_just_asked = False
     if recent and recent[-1].get('sender') == 'assistant':
@@ -478,22 +493,23 @@ def _should_bot_respond(user_text: str, user_name: str, room_state: RoomState, a
     try:
         # Build adaptive guidelines based on context
         guidelines = [
-            "- RESPOND if the message is a question or request",
-            "- RESPOND if it's a follow-up to something Assistant said or asked",
-            "- RESPOND to emotional statements (loneliness, sadness, excitement) as people want engagement",
-            "- RESPOND to statements that seem directed at the group when no one else has responded"
+            "- RESPOND if someone references the bot indirectly (like 'what does the bot think?')",
+            "- RESPOND if someone asks for help or information that Assistant can provide",
+            "- RESPOND if someone asks 'can anyone help?' or 'does anyone know?' when no one else has answered",
+            "- RESPOND if it's clearly a follow-up/reply to something Assistant specifically said or asked",
+            "- RESPOND to genuine emotional expressions that seem like they want support (loneliness, sadness, anxiety)"
         ]
-
-        if bot_recently_active:
-            guidelines.insert(0, "- IMPORTANT: Assistant was just active, so this is likely a follow-up → RESPOND unless it's clearly directed at another user")
 
         if Assistant_just_asked:
             guidelines.insert(0, "- CRITICAL: Assistant just asked a question, and this is the user's response → DEFINITELY RESPOND")
 
         guidelines.extend([
-            "- DON'T respond if users are greeting each other specifically (like 'hey John!')",
-            "- DON'T respond if two specific users are having a 1-on-1 conversation",
-            "- When uncertain, lean towards RESPONDING to keep the conversation alive"
+            "- DON'T respond to greetings between specific users (like 'hey John')",
+            "- DON'T respond to generic greetings unless it seems like they're welcoming Assistant",
+            "- DON'T respond to small talk between users (like 'what are u up to', 'doing alright')",
+            "- DON'T respond to users clearly having a 1-on-1 conversation about personal matters",
+            "- DON'T respond to rhetorical questions or statements not looking for an answer",
+            "- When uncertain, lean slightly towards NOT responding to avoid interrupting"
         ])
 
         decision_prompt = f"""You are deciding if Assistant (an AI assistant) should respond in a group chat.
