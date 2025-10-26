@@ -194,7 +194,6 @@ body {
 .room-content {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
 }
 
@@ -239,79 +238,6 @@ body {
 .room-badge.private {
   background: rgba(156, 39, 176, 0.2);
   color: #ce93d8;
-}
-
-.room-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.room-copy-btn {
-  background: rgba(33, 150, 243, 0.2);
-  color: #64b5f6;
-  border: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.2s;
-  opacity: 0.7;
-}
-
-.room-copy-btn:hover {
-  background: rgba(33, 150, 243, 0.4);
-  opacity: 1;
-  transform: scale(1.1);
-}
-
-.room-item.active .room-copy-btn {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-}
-
-.room-item.active .room-copy-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.room-delete-btn {
-  background: rgba(244, 67, 54, 0.2);
-  color: #ef5350;
-  border: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all 0.2s;
-  opacity: 0.7;
-}
-
-.room-delete-btn:hover {
-  background: rgba(244, 67, 54, 0.4);
-  opacity: 1;
-  transform: scale(1.1);
-}
-
-.room-item.active .room-delete-btn {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-}
-
-.room-item.active .room-delete-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
 }
 
 /* Chat container */
@@ -879,6 +805,150 @@ footer .meta {
   background: rgba(244, 67, 54, 0.3);
 }
 
+/* Temp ban group with duration picker */
+.tempban-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.duration-picker {
+  display: flex;
+  gap: 8px;
+  padding-left: 4px;
+}
+
+.duration-picker input[type="number"] {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 14px;
+  min-width: 60px;
+}
+
+.duration-picker select {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Ban list modal */
+.ban-list-modal {
+  max-width: 600px;
+  min-height: 300px;
+}
+
+.ban-list {
+  max-height: 400px;
+  overflow-y: auto;
+  margin: 20px 0;
+}
+
+.ban-list-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 40px 20px;
+  font-size: 14px;
+}
+
+.ban-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  transition: background 0.2s;
+}
+
+.ban-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ban-item-info {
+  flex: 1;
+}
+
+.ban-item-user {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.ban-item-details {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.ban-item-details .permanent {
+  color: #ef5350;
+  font-weight: 500;
+}
+
+.ban-item-details .temporary {
+  color: #ff7043;
+  font-weight: 500;
+}
+
+.ban-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.unban-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(76, 175, 80, 0.2);
+  color: #81c784;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.unban-btn:hover {
+  background: rgba(76, 175, 80, 0.3);
+}
+
+/* Icon button for ban list toggle */
+.icon-btn {
+  padding: 6px;
+  border: none;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-header h2 {
+  flex: 1;
+}
+
 /* DM modal styles */
 .dm-modal {
   max-width: 600px;
@@ -957,4 +1027,68 @@ footer .meta {
 
 .dm-composer button {
   padding: 10px 20px;
+}
+
+/* Context menu for rooms */
+.room-context-menu {
+  position: fixed;
+  background: rgba(20, 20, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  display: none;
+  backdrop-filter: blur(10px);
+  animation: contextMenuSlideIn 0.15s ease-out;
+}
+
+@keyframes contextMenuSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.room-context-menu.visible {
+  display: block;
+}
+
+.context-menu-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 4px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+}
+
+.context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.context-menu-item.copy {
+  color: #64b5f6;
+}
+
+.context-menu-item.delete {
+  color: #ef5350;
+}
+
+.context-menu-item.unsave {
+  color: #ffa726;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 4px 8px;
 }

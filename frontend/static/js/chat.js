@@ -10,6 +10,7 @@ let currentRoomId = null; // Track current room
 let officialRooms = []; // List of official rooms
 let communityRooms = []; // List of community rooms
 let myRooms = []; // List of user's own rooms
+let savedRooms = []; // List of saved rooms
 let currentUserId = null; // Current user's ID
 let lastShownTimestamp = null; // Track last timestamp that was shown
 let lastMessageSender = null; // Track last message sender
@@ -23,6 +24,8 @@ let currentMembers = []; // Current room members
 let currentRoomOwnerId = null; // Current room owner ID
 let selectedUserId = null; // Selected user for modal
 let selectedUserName = null; // Selected user name for modal
+let contextMenuRoom = null; // Room data for context menu
+let contextMenuType = null; // Type of room list (my/saved/etc)
 
 // Connection retry state
 let retryAttempt = 0; // Current retry attempt
@@ -70,6 +73,14 @@ function toggleMemberList() {
 function updateMemberList(members, ownerId) {
   currentMembers = members || [];
   currentRoomOwnerId = ownerId;
+
+  // Show/hide view bans button based on ownership
+  const viewBansBtn = $('viewBansBtn');
+  if (currentUserId && ownerId && String(currentUserId) === String(ownerId)) {
+    viewBansBtn.style.display = 'flex';
+  } else {
+    viewBansBtn.style.display = 'none';
+  }
 
   const memberList = $('memberList');
   const memberCount = $('memberCount');
@@ -179,7 +190,22 @@ function kickUser() {
 function tempBanUser() {
   if (!selectedUserId || !currentRoomId) return;
 
-  if (!confirm(`Temporarily ban ${selectedUserName} for 24 hours?`)) {
+  // Get custom duration from the picker
+  const durationValue = parseInt($('banDuration').value) || 24;
+  const durationUnit = $('banDurationUnit').value;
+
+  // Convert to milliseconds
+  let durationMs;
+  if (durationUnit === 'days') {
+    durationMs = durationValue * 24 * 60 * 60 * 1000;
+  } else {
+    durationMs = durationValue * 60 * 60 * 1000;
+  }
+
+  // Create readable duration string
+  const durationStr = `${durationValue} ${durationUnit}`;
+
+  if (!confirm(`Temporarily ban ${selectedUserName} for ${durationStr}?`)) {
     return;
   }
 
@@ -187,7 +213,7 @@ function tempBanUser() {
     type: 'user.tempban',
     room_id: currentRoomId,
     target_user_id: selectedUserId,
-    duration: 24 * 60 * 60 * 1000 // 24 hours in milliseconds
+    duration: durationMs
   });
 
   hideUserModal();
@@ -213,6 +239,120 @@ function banUser() {
 }
 
 /**
+ * Show ban list modal.
+ */
+function showBanList() {
+  if (!currentRoomId) return;
+
+  // Request ban list from server
+  socket.emit('client', {
+    type: 'user.bans.list',
+    room_id: currentRoomId
+  });
+
+  // Show modal
+  $('banListModal').classList.remove('hidden');
+}
+
+/**
+ * Hide ban list modal.
+ */
+function hideBanList() {
+  $('banListModal').classList.add('hidden');
+}
+
+/**
+ * Update ban list display.
+ * @param {Array} bans - Array of ban objects
+ */
+function updateBanList(bans) {
+  const banListContent = $('banListContent');
+
+  if (!bans || bans.length === 0) {
+    banListContent.innerHTML = '<div class="ban-list-empty">No active bans</div>';
+    return;
+  }
+
+  banListContent.innerHTML = '';
+
+  bans.forEach(ban => {
+    const banItem = document.createElement('div');
+    banItem.className = 'ban-item';
+
+    // Ban info section
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'ban-item-info';
+
+    const userDiv = document.createElement('div');
+    userDiv.className = 'ban-item-user';
+    userDiv.textContent = ban.banned_user_name || `User ${ban.user_id}`;
+
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'ban-item-details';
+
+    // Format ban type and expiration
+    let banTypeText;
+    if (ban.expires_at) {
+      const expiresDate = new Date(ban.expires_at);
+      const now = new Date();
+      const hoursLeft = Math.ceil((expiresDate - now) / (1000 * 60 * 60));
+      banTypeText = `<span class="temporary">Temporary ban</span> - expires in ${hoursLeft}h`;
+    } else {
+      banTypeText = '<span class="permanent">Permanent ban</span>';
+    }
+
+    const bannedBy = ban.banned_by_name || `User ${ban.banned_by}`;
+    const bannedAt = new Date(ban.banned_at).toLocaleString();
+
+    detailsDiv.innerHTML = `
+      ${banTypeText}<br>
+      Banned by: ${bannedBy}<br>
+      Banned at: ${bannedAt}
+    `;
+
+    infoDiv.appendChild(userDiv);
+    infoDiv.appendChild(detailsDiv);
+
+    // Actions section
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'ban-item-actions';
+
+    const unbanBtn = document.createElement('button');
+    unbanBtn.className = 'unban-btn';
+    unbanBtn.textContent = 'Unban';
+    unbanBtn.onclick = () => unbanUser(ban.id, ban.user_id, ban.banned_user_name);
+
+    actionsDiv.appendChild(unbanBtn);
+
+    banItem.appendChild(infoDiv);
+    banItem.appendChild(actionsDiv);
+
+    banListContent.appendChild(banItem);
+  });
+}
+
+/**
+ * Unban a user.
+ * @param {number} banId - Ban ID
+ * @param {number} userId - User ID
+ * @param {string} userName - User name
+ */
+function unbanUser(banId, userId, userName) {
+  if (!currentRoomId) return;
+
+  if (!confirm(`Unban ${userName || `User ${userId}`}?`)) {
+    return;
+  }
+
+  socket.emit('client', {
+    type: 'user.unban',
+    room_id: currentRoomId,
+    ban_id: banId,
+    target_user_id: userId
+  });
+}
+
+/**
  * Copy room link to clipboard.
  * @param {string} roomId - The room ID
  * @param {string} roomName - The room name
@@ -230,6 +370,77 @@ function copyRoomLink(roomId, roomName) {
     console.error('Failed to copy link:', err);
     log('! Failed to copy link', 'meta');
   });
+}
+
+/**
+ * Show context menu for a room.
+ * @param {Event} e - The mouse event
+ * @param {Object} room - Room object
+ * @param {string} roomType - Type of room list ('my', 'saved', etc.)
+ */
+function showRoomContextMenu(e, room, roomType) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  const menu = $('roomContextMenu');
+  const deleteItem = menu.querySelector('[data-action="delete"]');
+  const unsaveItem = menu.querySelector('[data-action="unsave"]');
+
+  // Store room data for later use
+  contextMenuRoom = room;
+  contextMenuType = roomType;
+
+  // Show/hide options based on room type
+  deleteItem.style.display = roomType === 'my' ? 'block' : 'none';
+  unsaveItem.style.display = roomType === 'saved' ? 'block' : 'none';
+
+  // Position the menu at mouse cursor
+  menu.style.left = e.pageX + 'px';
+  menu.style.top = e.pageY + 'px';
+  menu.classList.add('visible');
+
+  // Adjust position if menu goes off screen
+  setTimeout(() => {
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      menu.style.left = (e.pageX - rect.width) + 'px';
+    }
+    if (rect.bottom > window.innerHeight) {
+      menu.style.top = (e.pageY - rect.height) + 'px';
+    }
+  }, 0);
+}
+
+/**
+ * Hide the context menu.
+ */
+function hideRoomContextMenu() {
+  const menu = $('roomContextMenu');
+  menu.classList.remove('visible');
+  contextMenuRoom = null;
+  contextMenuType = null;
+}
+
+/**
+ * Handle context menu item clicks.
+ * @param {string} action - The action to perform
+ */
+function handleContextMenuAction(action) {
+  if (!contextMenuRoom) return;
+
+  switch (action) {
+    case 'copy':
+      copyRoomLink(contextMenuRoom.id, contextMenuRoom.name);
+      break;
+    case 'delete':
+      deleteRoom(contextMenuRoom.id, contextMenuRoom.name);
+      break;
+    case 'unsave':
+      unsaveRoom(contextMenuRoom.id, contextMenuRoom.name);
+      break;
+  }
+
+  hideRoomContextMenu();
 }
 
 /**
@@ -545,10 +756,11 @@ function sendDm() {
  * @param {Array} community - List of community room objects
  * @param {Array} my - List of user's own room objects
  */
-function updateRoomList(official, community, my) {
+function updateRoomList(official, community, my, saved) {
   officialRooms = official || [];
   communityRooms = community || [];
   myRooms = my || [];
+  savedRooms = saved || [];
 
   // Update official rooms
   const officialList = $('officialRoomList');
@@ -561,7 +773,7 @@ function updateRoomList(official, community, my) {
     officialList.appendChild(empty);
   } else {
     officialRooms.forEach(room => {
-      const roomEl = createRoomElement(room, false);
+      const roomEl = createRoomElement(room, 'official');
       officialList.appendChild(roomEl);
     });
   }
@@ -577,7 +789,7 @@ function updateRoomList(official, community, my) {
     communityList.appendChild(empty);
   } else {
     communityRooms.forEach(room => {
-      const roomEl = createRoomElement(room, false);
+      const roomEl = createRoomElement(room, 'community');
       communityList.appendChild(roomEl);
     });
   }
@@ -593,8 +805,24 @@ function updateRoomList(official, community, my) {
     myRoomsList.appendChild(empty);
   } else {
     myRooms.forEach(room => {
-      const roomEl = createRoomElement(room, true);
+      const roomEl = createRoomElement(room, 'my');
       myRoomsList.appendChild(roomEl);
+    });
+  }
+
+  // Update saved rooms
+  const savedRoomsList = $('savedRoomList');
+  savedRoomsList.innerHTML = '';
+
+  if (savedRooms.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'room-list-empty';
+    empty.textContent = 'No saved rooms yet';
+    savedRoomsList.appendChild(empty);
+  } else {
+    savedRooms.forEach(room => {
+      const roomEl = createRoomElement(room, 'saved');
+      savedRoomsList.appendChild(roomEl);
     });
   }
 }
@@ -602,10 +830,10 @@ function updateRoomList(official, community, my) {
 /**
  * Create a room element for the sidebar.
  * @param {Object} room - Room object
- * @param {boolean} showDelete - Whether to show delete button
+ * @param {string} roomType - Type of room list ('official', 'community', 'my', 'saved')
  * @returns {HTMLElement} - Room element
  */
-function createRoomElement(room, showDelete = false) {
+function createRoomElement(room, roomType = 'community') {
   const roomEl = document.createElement('div');
   roomEl.className = 'room-item';
   if (room.id === currentRoomId) {
@@ -636,38 +864,13 @@ function createRoomElement(room, showDelete = false) {
   }
 
   roomContent.appendChild(roomName);
-
-  // Add action buttons container
-  const actionsContainer = document.createElement('div');
-  actionsContainer.className = 'room-actions';
-
-  // Add copy link button
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'room-copy-btn';
-  copyBtn.innerHTML = '🔗';
-  copyBtn.title = 'Copy room link';
-  copyBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    copyRoomLink(room.id, room.name);
-  });
-  actionsContainer.appendChild(copyBtn);
-
-  // Add delete button for owned rooms
-  if (showDelete) {
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'room-delete-btn';
-    deleteBtn.textContent = '×';
-    deleteBtn.title = 'Delete room';
-    deleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteRoom(room.id, room.name);
-    });
-    actionsContainer.appendChild(deleteBtn);
-  }
-
-  roomContent.appendChild(actionsContainer);
   roomEl.appendChild(roomContent);
+
+  // Add click handler for joining room
   roomEl.addEventListener('click', () => joinRoom(room.id, room.name));
+
+  // Add right-click handler for context menu
+  roomEl.addEventListener('contextmenu', (e) => showRoomContextMenu(e, room, roomType));
 
   return roomEl;
 }
@@ -690,6 +893,28 @@ function deleteRoom(roomId, roomName) {
   console.log('Deleting room:', roomId);
   socket.emit('client', {
     type: 'room.delete',
+    room_id: roomId
+  });
+}
+
+/**
+ * Remove a room from saved list.
+ * @param {string} roomId - The room ID
+ * @param {string} roomName - The room name
+ */
+function unsaveRoom(roomId, roomName) {
+  if (!confirm(`Remove "${roomName}" from saved rooms?`)) {
+    return;
+  }
+
+  if (!socket || socket.disconnected) {
+    log('! Not connected to server', 'meta');
+    return;
+  }
+
+  console.log('Unsaving room:', roomId);
+  socket.emit('client', {
+    type: 'room.unsave',
     room_id: roomId
   });
 }
@@ -726,7 +951,7 @@ function joinRoom(roomId, roomName) {
   });
 
   // Update room list display
-  updateRoomList(officialRooms, communityRooms, myRooms);
+  updateRoomList(officialRooms, communityRooms, myRooms, savedRooms);
 }
 
 /**
@@ -952,7 +1177,7 @@ function connectSocket() {
         if (m.user_info && m.user_info.user_id) {
           currentUserId = m.user_info.user_id;
         }
-        updateRoomList(m.official_rooms, m.community_rooms, m.my_rooms);
+        updateRoomList(m.official_rooms, m.community_rooms, m.my_rooms, m.saved_rooms);
 
         // Check if room ID is in URL
         if (!roomIdFromUrl) {
@@ -992,8 +1217,8 @@ function connectSocket() {
       case 'rooms.list.update':
         // Received updated room list (after room creation/deletion)
         console.log('Received room list update:', m);
-        // Keep current myRooms, but update official and community
-        updateRoomList(m.official_rooms, m.community_rooms, myRooms);
+        // Keep current myRooms and savedRooms, but update official and community
+        updateRoomList(m.official_rooms, m.community_rooms, myRooms, savedRooms);
         break;
 
       case 'room.created':
@@ -1002,7 +1227,7 @@ function connectSocket() {
         log(`Room "${m.room.name}" created successfully`, 'meta');
         // Add to myRooms and update display
         myRooms.push(m.room);
-        updateRoomList(officialRooms, communityRooms, myRooms);
+        updateRoomList(officialRooms, communityRooms, myRooms, savedRooms);
         break;
 
       case 'room.deleted':
@@ -1011,7 +1236,7 @@ function connectSocket() {
         log('Room deleted successfully', 'meta');
         // Remove from myRooms
         myRooms = myRooms.filter(r => r.id !== m.room_id);
-        updateRoomList(officialRooms, communityRooms, myRooms);
+        updateRoomList(officialRooms, communityRooms, myRooms, savedRooms);
         // If we're in the deleted room, clear the chat
         if (currentRoomId === m.room_id) {
           currentRoomId = null;
@@ -1033,6 +1258,11 @@ function connectSocket() {
         setUsers(m.users.length);
         $('log').innerHTML = '';
 
+        // Set room owner ID from snapshot
+        if (m.owner_id) {
+          currentRoomOwnerId = String(m.owner_id);
+        }
+
         // Update room name if it was "Loading room..."
         if ($('currentRoomName').textContent === 'Loading room...') {
           // Try to find the room name from our lists
@@ -1044,10 +1274,6 @@ function connectSocket() {
           const room = allRooms.find(r => r.id === m.room_id);
           if (room) {
             $('currentRoomName').textContent = room.name;
-            // Get room owner from the room data
-            if (room.created_by) {
-              currentRoomOwnerId = String(room.created_by);
-            }
           } else {
             $('currentRoomName').textContent = `Room ${m.room_id.slice(0, 8)}`;
           }
@@ -1168,6 +1394,40 @@ function connectSocket() {
         // Clear current room
         currentRoomId = null;
         updateUrlWithRoom(null);
+        break;
+
+      case 'user.bans.list':
+        // Received ban list for the room
+        updateBanList(m.bans);
+        break;
+
+      case 'user.unban.success':
+        log(`✓ ${m.message}`, 'meta');
+        // Refresh the ban list if modal is open
+        if (!$('banListModal').classList.contains('hidden')) {
+          showBanList();
+        }
+        break;
+
+      case 'user.ban.success':
+      case 'user.tempban.success':
+        log(`✓ ${m.message}`, 'meta');
+        break;
+
+      case 'room.saved':
+        log(`✓ ${m.message}`, 'meta');
+        // Add room to saved list if not already there
+        if (!savedRooms.find(r => r.id === m.room.id)) {
+          savedRooms.push(m.room);
+          updateRoomList(officialRooms, communityRooms, myRooms, savedRooms);
+        }
+        break;
+
+      case 'room.unsave.success':
+        log(`✓ ${m.message}`, 'meta');
+        // Remove room from saved list
+        savedRooms = savedRooms.filter(r => r.id !== m.room_id);
+        updateRoomList(officialRooms, communityRooms, myRooms, savedRooms);
         break;
 
       case 'error':
@@ -1395,6 +1655,35 @@ function initChat() {
       hideUserModal();
     }
   });
+
+  // Ban list modal
+  $('viewBansBtn').onclick = showBanList;
+  $('banListModalClose').onclick = hideBanList;
+
+  $('banListModal').addEventListener('click', (e) => {
+    if (e.target === $('banListModal')) {
+      hideBanList();
+    }
+  });
+
+  // Context menu handlers
+  const contextMenuItems = document.querySelectorAll('.context-menu-item');
+  contextMenuItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const action = item.getAttribute('data-action');
+      handleContextMenuAction(action);
+    });
+  });
+
+  // Hide context menu when clicking elsewhere
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.room-context-menu')) {
+      hideRoomContextMenu();
+    }
+  });
+
+  // Hide context menu on scroll
+  document.addEventListener('scroll', hideRoomContextMenu, true);
 
   // Initialize
   connectSocket();

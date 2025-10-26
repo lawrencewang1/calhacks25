@@ -37,6 +37,13 @@
         <div class="room-list-empty">No rooms created yet</div>
       </div>
     </div>
+
+    <div class="room-section">
+      <h3 class="room-section-title">Saved Rooms</h3>
+      <div id="savedRoomList" class="room-list">
+        <div class="room-list-empty">No saved rooms yet</div>
+      </div>
+    </div>
   </aside>
 
   <!-- Main chat area -->
@@ -75,6 +82,12 @@
     <div class="sidebar-header">
       <h2>Members</h2>
       <span id="memberCount">0</span>
+      <button id="viewBansBtn" class="icon-btn" title="View Ban List" style="display: none;">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="8" cy="8" r="6"/>
+          <line x1="4" y1="8" x2="12" y2="8"/>
+        </svg>
+      </button>
     </div>
     <div id="memberList" class="member-list">
       <div class="member-list-empty">No members</div>
@@ -123,11 +136,33 @@
     <h2 id="userModalName">User</h2>
     <div id="userModalActions" class="user-actions">
       <button id="kickUserBtn" class="action-btn kick">Kick from room</button>
-      <button id="tempBanUserBtn" class="action-btn tempban">Temp ban (24h)</button>
+      <div class="tempban-group">
+        <button id="tempBanUserBtn" class="action-btn tempban">Temp ban</button>
+        <div class="duration-picker">
+          <input id="banDuration" type="number" min="1" max="8760" value="24" />
+          <select id="banDurationUnit">
+            <option value="hours">Hours</option>
+            <option value="days">Days</option>
+          </select>
+        </div>
+      </div>
       <button id="banUserBtn" class="action-btn ban">Permanent ban</button>
     </div>
     <div class="modal-actions">
       <button id="userModalClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Ban list modal -->
+<div id="banListModal" class="modal hidden">
+  <div class="modal-content ban-list-modal">
+    <h2>Ban List</h2>
+    <div id="banListContent" class="ban-list">
+      <div class="ban-list-empty">No active bans</div>
+    </div>
+    <div class="modal-actions">
+      <button id="banListModalClose">Close</button>
     </div>
   </div>
 </div>
@@ -177,6 +212,23 @@
     <div class="modal-actions">
       <button id="settingsClose">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- Room context menu -->
+<div id="roomContextMenu" class="room-context-menu">
+  <div class="context-menu-item copy" data-action="copy">
+    <span>🔗</span>
+    <span>Copy Link</span>
+  </div>
+  <div class="context-menu-separator"></div>
+  <div class="context-menu-item delete" data-action="delete" style="display: none;">
+    <span>🗑️</span>
+    <span>Delete Room</span>
+  </div>
+  <div class="context-menu-item unsave" data-action="unsave" style="display: none;">
+    <span>✕</span>
+    <span>Remove from Saved</span>
   </div>
 </div>
 

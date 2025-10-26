@@ -36,6 +36,7 @@ from backend.models.user import User
 from backend.models.room import Room
 from backend.models.message import Message
 from backend.models.room_ban import RoomBan
+from backend.models.saved_room import SavedRoom
 
 class RoomState:
     """Manages state for a single chatroom with thread-safe operations."""
@@ -54,15 +55,22 @@ class RoomState:
             self.room_seq += 1
             return self.room_seq
 
-    def snapshot(self):
-        """Generate a snapshot of the current room state."""
-        return {
+    def snapshot(self, owner_id=None):
+        """Generate a snapshot of the current room state.
+
+        Args:
+            owner_id: Optional room owner ID to include in snapshot
+        """
+        snapshot_data = {
             "type": "room.snapshot",
             "room_id": self.room_id,
             "room_seq": self.room_seq,
             "users": [{"id": sid, "name": c["name"], "user_id": c.get("user_id")} for sid, c in self.clients.items()],
             "messages": list(self.messages)
         }
+        if owner_id is not None:
+            snapshot_data["owner_id"] = owner_id
+        return snapshot_data
 
 # Global dictionary mapping room_id -> RoomState
 rooms = {}
@@ -855,7 +863,7 @@ def register_socketio(socketio, app):
         client_rooms[request.sid] = None
         client_info[request.sid] = {"name": name, "user_id": user_id}
 
-        # Send list of available rooms (official, public community, and user's own rooms)
+        # Send list of available rooms (official, public community, user's own rooms, and saved rooms)
         try:
             with app.app_context():
                 official_rooms = Room.query.filter_by(is_active=True, is_official=True).all()
@@ -863,18 +871,32 @@ def register_socketio(socketio, app):
 
                 # Get user's own rooms (both public and private)
                 my_rooms = []
+                saved_rooms = []
                 if user_id:
                     my_rooms = Room.query.filter_by(is_active=True, created_by=int(user_id)).all()
+
+                    # Get saved rooms (rooms user has joined but didn't create)
+                    saved_room_entries = SavedRoom.query.filter_by(user_id=int(user_id)).all()
+                    saved_room_ids = [sr.room_id for sr in saved_room_entries]
+                    if saved_room_ids:
+                        # Get the actual room objects, excluding rooms the user created
+                        saved_rooms = Room.query.filter(
+                            Room.id.in_(saved_room_ids),
+                            Room.is_active == True,
+                            Room.created_by != int(user_id)
+                        ).all()
 
                 official_list = [r.to_dict() for r in official_rooms]
                 community_list = [r.to_dict() for r in community_rooms]
                 my_rooms_list = [r.to_dict() for r in my_rooms]
+                saved_rooms_list = [r.to_dict() for r in saved_rooms]
 
                 socketio.emit("server", {
                     "type": "rooms.list",
                     "official_rooms": official_list,
                     "community_rooms": community_list,
                     "my_rooms": my_rooms_list,
+                    "saved_rooms": saved_rooms_list,
                     "user_info": {"name": name, "user_id": user_id}
                 }, to=request.sid)
         except Exception as e:
@@ -884,6 +906,7 @@ def register_socketio(socketio, app):
                 "official_rooms": [],
                 "community_rooms": [],
                 "my_rooms": [],
+                "saved_rooms": [],
                 "user_info": {"name": name, "user_id": user_id}
             }, to=request.sid)
 
@@ -970,8 +993,43 @@ def register_socketio(socketio, app):
 
             room_state.clients[request.sid] = {"name": user_name, "user_id": user_id}
 
+            # Query room from database to get owner ID and auto-save private rooms
+            room_owner_id = None
+            try:
+                with app.app_context():
+                    room = Room.query.get(room_id)
+                    if room:
+                        room_owner_id = room.created_by
+
+                        # Auto-save private rooms when a user joins (if not the owner)
+                        if user_id and not room.is_public and room.created_by != int(user_id):
+                            # Check if already saved
+                            existing_save = SavedRoom.query.filter_by(
+                                user_id=int(user_id),
+                                room_id=room_id
+                            ).first()
+
+                            if not existing_save:
+                                # Save the room for this user
+                                saved_room = SavedRoom(
+                                    user_id=int(user_id),
+                                    room_id=room_id
+                                )
+                                db.session.add(saved_room)
+                                db.session.commit()
+                                print(f"Auto-saved private room {room_id} for user {user_id}")
+
+                                # Notify the user that the room was saved
+                                socketio.emit("server", {
+                                    "type": "room.saved",
+                                    "room": room.to_dict(),
+                                    "message": "Room saved to your list"
+                                }, to=request.sid)
+            except Exception as e:
+                print(f"Error fetching room owner or saving room: {e}")
+
             # Send snapshot to this client
-            socketio.emit("server", room_state.snapshot(), to=request.sid)
+            socketio.emit("server", room_state.snapshot(owner_id=room_owner_id), to=request.sid)
 
             # Notify the room
             seq = room_state.next_seq()
@@ -1276,9 +1334,14 @@ def register_socketio(socketio, app):
                         }, to=request.sid)
                         return
 
-                    # Create temp ban (24 hours = 86400000 milliseconds)
+                    # Get custom duration or default to 24 hours
+                    duration_ms = msg.get("duration")
+                    if not duration_ms or duration_ms <= 0:
+                        duration_ms = 24 * 60 * 60 * 1000  # Default: 24 hours in milliseconds
+
+                    # Create temp ban
                     current_time = int(time.time() * 1000)
-                    expires_at = current_time + (24 * 60 * 60 * 1000)
+                    expires_at = current_time + duration_ms
 
                     # Deactivate any existing bans
                     existing_bans = RoomBan.query.filter_by(
@@ -1463,6 +1526,303 @@ def register_socketio(socketio, app):
                 socketio.emit("server", {
                     "type": "error",
                     "message": "Failed to ban user"
+                }, to=request.sid)
+
+        elif t == "user.bans.list":
+            # Handle fetching ban list for a room
+            room_id = msg.get("room_id")
+
+            if not room_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room ID is required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to view ban list"
+                }, to=request.sid)
+                return
+
+            try:
+                with app.app_context():
+                    room = Room.query.get(room_id)
+                    if not room:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Room not found"
+                        }, to=request.sid)
+                        return
+
+                    # Check if user is the room owner
+                    if room.created_by != int(user_id):
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Only the room owner can view ban list"
+                        }, to=request.sid)
+                        return
+
+                    # Get all active bans for this room
+                    bans = RoomBan.query.filter_by(room_id=room_id, is_active=True).all()
+
+                    # Build ban list with user info
+                    ban_list = []
+                    for ban in bans:
+                        # Check if temp ban has expired
+                        if ban.is_expired():
+                            ban.is_active = False
+                            db.session.commit()
+                            continue
+
+                        # Get user info
+                        banned_user = User.query.get(ban.user_id)
+                        banned_by_user = User.query.get(ban.banned_by)
+
+                        ban_info = ban.to_dict()
+                        if banned_user:
+                            ban_info['banned_user_name'] = getattr(banned_user, 'name', None) or getattr(banned_user, 'email', '').split('@')[0]
+                        if banned_by_user:
+                            ban_info['banned_by_name'] = getattr(banned_by_user, 'name', None) or getattr(banned_by_user, 'email', '').split('@')[0]
+
+                        ban_list.append(ban_info)
+
+                    socketio.emit("server", {
+                        "type": "user.bans.list",
+                        "room_id": room_id,
+                        "bans": ban_list
+                    }, to=request.sid)
+
+            except Exception as e:
+                print(f"Error fetching ban list: {e}")
+                import traceback
+                traceback.print_exc()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to fetch ban list"
+                }, to=request.sid)
+
+        elif t == "user.unban":
+            # Handle unbanning a user
+            room_id = msg.get("room_id")
+            ban_id = msg.get("ban_id")
+            target_user_id = msg.get("target_user_id")
+
+            if not room_id or not (ban_id or target_user_id):
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room ID and ban ID or target user ID are required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to unban users"
+                }, to=request.sid)
+                return
+
+            try:
+                with app.app_context():
+                    room = Room.query.get(room_id)
+                    if not room:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Room not found"
+                        }, to=request.sid)
+                        return
+
+                    # Check if user is the room owner
+                    if room.created_by != int(user_id):
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Only the room owner can unban users"
+                        }, to=request.sid)
+                        return
+
+                    # Find and deactivate the ban
+                    if ban_id:
+                        ban = RoomBan.query.get(ban_id)
+                        if ban and ban.room_id == room_id:
+                            ban.is_active = False
+                            db.session.commit()
+
+                            socketio.emit("server", {
+                                "type": "user.unban.success",
+                                "message": "User has been unbanned",
+                                "ban_id": ban_id
+                            }, to=request.sid)
+                        else:
+                            socketio.emit("server", {
+                                "type": "error",
+                                "message": "Ban not found"
+                            }, to=request.sid)
+                    elif target_user_id:
+                        # Deactivate all active bans for this user in this room
+                        bans = RoomBan.query.filter_by(
+                            room_id=room_id,
+                            user_id=int(target_user_id),
+                            is_active=True
+                        ).all()
+
+                        for ban in bans:
+                            ban.is_active = False
+
+                        db.session.commit()
+
+                        socketio.emit("server", {
+                            "type": "user.unban.success",
+                            "message": "User has been unbanned",
+                            "target_user_id": target_user_id
+                        }, to=request.sid)
+
+            except Exception as e:
+                print(f"Error unbanning user: {e}")
+                import traceback
+                traceback.print_exc()
+                with app.app_context():
+                    db.session.rollback()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to unban user"
+                }, to=request.sid)
+
+        elif t == "room.save":
+            # Handle saving/bookmarking a room
+            room_id = msg.get("room_id")
+
+            if not room_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room ID is required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to save rooms"
+                }, to=request.sid)
+                return
+
+            try:
+                with app.app_context():
+                    room = Room.query.get(room_id)
+                    if not room:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Room not found"
+                        }, to=request.sid)
+                        return
+
+                    # Check if already saved
+                    existing_save = SavedRoom.query.filter_by(
+                        user_id=int(user_id),
+                        room_id=room_id
+                    ).first()
+
+                    if existing_save:
+                        socketio.emit("server", {
+                            "type": "room.save.success",
+                            "message": "Room already saved",
+                            "room_id": room_id
+                        }, to=request.sid)
+                        return
+
+                    # Save the room
+                    saved_room = SavedRoom(
+                        user_id=int(user_id),
+                        room_id=room_id
+                    )
+                    db.session.add(saved_room)
+                    db.session.commit()
+
+                    socketio.emit("server", {
+                        "type": "room.save.success",
+                        "message": "Room saved successfully",
+                        "room_id": room_id
+                    }, to=request.sid)
+
+            except Exception as e:
+                print(f"Error saving room: {e}")
+                import traceback
+                traceback.print_exc()
+                with app.app_context():
+                    db.session.rollback()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to save room"
+                }, to=request.sid)
+
+        elif t == "room.unsave":
+            # Handle unsaving/removing a saved room
+            room_id = msg.get("room_id")
+
+            if not room_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Room ID is required"
+                }, to=request.sid)
+                return
+
+            # Get user ID from stored client info
+            user_info = client_info.get(request.sid, {"name": "anon", "user_id": None})
+            user_id = user_info["user_id"]
+
+            if not user_id:
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Must be logged in to unsave rooms"
+                }, to=request.sid)
+                return
+
+            try:
+                with app.app_context():
+                    # Find the saved room entry
+                    saved_room = SavedRoom.query.filter_by(
+                        user_id=int(user_id),
+                        room_id=room_id
+                    ).first()
+
+                    if not saved_room:
+                        socketio.emit("server", {
+                            "type": "error",
+                            "message": "Room not in saved list"
+                        }, to=request.sid)
+                        return
+
+                    # Delete the saved room entry
+                    db.session.delete(saved_room)
+                    db.session.commit()
+
+                    socketio.emit("server", {
+                        "type": "room.unsave.success",
+                        "message": "Room removed from saved list",
+                        "room_id": room_id
+                    }, to=request.sid)
+
+            except Exception as e:
+                print(f"Error unsaving room: {e}")
+                import traceback
+                traceback.print_exc()
+                with app.app_context():
+                    db.session.rollback()
+                socketio.emit("server", {
+                    "type": "error",
+                    "message": "Failed to unsave room"
                 }, to=request.sid)
 
         elif t == "send.message":
