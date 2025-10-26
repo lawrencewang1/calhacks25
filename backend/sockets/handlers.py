@@ -278,6 +278,84 @@ def _payload(messages, app):
     return {"messages": messages, "stream": True, "max_tokens": max_tokens}
 
 
+def _should_bot_respond(user_text: str, user_name: str, app) -> bool:
+    """
+    Determine if the bot should respond to a message.
+
+    Uses heuristics and conversation context to decide if Midori should respond.
+
+    Args:
+        user_text: The user's message text
+        user_name: The name of the user who sent the message
+        app: Flask application instance
+
+    Returns:
+        bool: True if bot should respond, False otherwise
+    """
+    text_lower = user_text.lower()
+
+    # Always respond if directly mentioned
+    mentions = ['@midori', '@ai', 'midori', 'hey midori', 'hi midori']
+    if any(mention in text_lower for mention in mentions):
+        return True
+
+    # Check for direct request phrases
+    request_phrases = ['could you', 'can you', 'would you', 'will you', 'please help', 'help me']
+    if any(phrase in text_lower for phrase in request_phrases):
+        return True
+
+    # Get recent context
+    recent = list(messages)[-5:]  # Look at last 5 messages for better context
+
+    # Check if bot was recently active (last message or second-to-last was from assistant)
+    bot_recently_active = False
+    if recent:
+        last_sender = recent[-1].get('sender', '') if len(recent) >= 1 else ''
+        second_last_sender = recent[-2].get('sender', '') if len(recent) >= 2 else ''
+
+        bot_recently_active = (last_sender == 'assistant' or second_last_sender == 'assistant')
+
+    # If bot was recently active and user asks a question, it's likely a follow-up
+    if bot_recently_active and '?' in user_text:
+        print(f"Bot responding to follow-up question after recent activity")
+        return True
+
+    # Check for question patterns
+    if '?' in user_text:
+        # Count recent messages from users vs assistant
+        recent_user_msgs = [m for m in recent[-3:] if m.get('sender', '').startswith('user:')]
+        recent_assistant_msgs = [m for m in recent[-3:] if m.get('sender') == 'assistant']
+
+        # If there are recent assistant messages, more likely to be relevant
+        if len(recent_assistant_msgs) > 0:
+            return True
+
+        # If it's just users talking to each other (2+ user messages in a row), skip
+        if len(recent_user_msgs) >= 2 and len(recent_assistant_msgs) == 0:
+            # Check if messages are short and conversational
+            avg_length = sum(len(m.get('text', '').split()) for m in recent_user_msgs) / len(recent_user_msgs)
+            if avg_length <= 5:
+                return False
+
+        # Otherwise, respond to questions
+        return True
+
+    # If message is very short and conversational between users, don't respond
+    if len(user_text.split()) <= 3:
+        recent_user_only = [m for m in recent[-3:] if m.get('sender', '').startswith('user:')]
+        if len(recent_user_only) >= 2:
+            # Short messages between users, probably chatting
+            return False
+
+    # Check for conversational continuity (references to previous topic)
+    if bot_recently_active and len(user_text.split()) > 5:
+        # Longer message after bot was active, likely continuing the conversation
+        return True
+
+    # Default to not responding for unclear cases
+    return False
+
+
 def _llm_stream_task(socketio, run_id: str, user_text: str, app):
     """
     Collect full LLM response and emit as complete message chunks.
@@ -505,6 +583,12 @@ def register_socketio(socketio, app):
                 {"type": "message.appended", "room_seq": seq, "message": m},
                 room=ROOM_ID, skip_sid=request.sid)
 
+            # Check if bot should respond
+            user_name = clients.get(request.sid, {}).get('name', 'anon')
+            if not _should_bot_respond(text, user_name, app):
+                print(f"Bot decided not to respond to: {text[:50]}...")
+                return
+
             # Start AI assistant
             run_id = str(uuid.uuid4())
             active_runs[run_id] = {"stop": False}
@@ -518,7 +602,7 @@ def register_socketio(socketio, app):
             # Start LLM stream in background thread
             threading.Thread(
                 target=_llm_stream_task,
-                args=(socketio, run_id, f"user:{clients.get(request.sid, {}).get('name', 'anon')}, text: " + text, app),
+                args=(socketio, run_id, f"user:{user_name}, text: " + text, app),
                 daemon=True
             ).start()
 

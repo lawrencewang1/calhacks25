@@ -5,22 +5,24 @@
 let socket = null;
 let currentRun = null;
 let mySocketId = null; // Track current user's socket ID
+let myMessageIds = new Set(); // Track IDs of messages we sent
 
 /**
  * Log a message to the chat.
  * @param {string} line - The message text
- * @param {string} cls - CSS class for styling
+ * @param {string} cls - CSS class for styling (user/other/assistant/meta)
  * @param {string} sender - Optional sender name to display above the bubble
  */
 function log(line, cls = '', sender = null) {
   const wrapper = document.createElement('div');
   wrapper.className = 'msg-wrapper ' + cls;
 
-  // Add sender label for user messages
-  if (sender && cls === 'user') {
+  // Add sender label
+  if (sender) {
     const label = document.createElement('div');
     label.className = 'msg-label';
-    label.textContent = sender;
+    // Display "Midori" for assistant, otherwise show sender name
+    label.textContent = cls === 'assistant' ? 'Midori' : sender;
     wrapper.appendChild(label);
   }
 
@@ -86,9 +88,12 @@ function sendMessage() {
   const t = $('text').value.trim();
   if (!t) return;
 
+  const msgId = crypto.randomUUID();
+  myMessageIds.add(msgId); // Track this as our message
+
   socket.emit('client', {
     type: 'send.message',
-    client_msg_id: crypto.randomUUID(),
+    client_msg_id: msgId,
     text: t
   });
 
@@ -117,6 +122,7 @@ function connectSocket() {
 
   socket.on('connect', () => {
     console.log('Socket connected successfully');
+    mySocketId = socket.id; // Store our socket ID
     setStatus('connected');
   });
 
@@ -129,7 +135,10 @@ function connectSocket() {
   socket.on('connect_error', (err) => {
     console.error('Socket connection error:', err);
     setStatus('connection error');
-    log(`! Connection error: ${err.message}. Check browser console for details.`, 'meta');
+    log(`! Connection error: ${err.message}. Redirecting to login.`, 'meta');
+    setTimeout(() => {
+      window.location.href = 'login.html';
+    }, 1000);
   });
 
   socket.on('server', m => {
@@ -138,8 +147,17 @@ function connectSocket() {
         setUsers(m.users.length);
         $('log').textContent = '';
         m.messages.forEach(x => {
-          const cls = x.sender === 'assistant' ? 'assistant' : 'user';
-          const sender = cls === 'user' ? formatSender(x.sender) : null;
+          let cls, sender;
+          if (x.sender === 'assistant') {
+            cls = 'assistant';
+            sender = 'Midori';
+          } else if (myMessageIds.has(x.id)) {
+            cls = 'user';
+            sender = null; // Don't show our own name
+          } else {
+            cls = 'other';
+            sender = formatSender(x.sender);
+          }
           log(x.text, cls, sender);
         });
         break;
@@ -155,8 +173,17 @@ function connectSocket() {
         break;
 
       case 'message.appended':
-        const cls = m.message.sender === 'assistant' ? 'assistant' : 'user';
-        const sender = cls === 'user' ? formatSender(m.message.sender) : null;
+        let cls, sender;
+        if (m.message.sender === 'assistant') {
+          cls = 'assistant';
+          sender = 'Midori';
+        } else if (myMessageIds.has(m.message.id)) {
+          cls = 'user';
+          sender = null; // Don't show our own name
+        } else {
+          cls = 'other';
+          sender = formatSender(m.message.sender);
+        }
         log(m.message.text, cls, sender);
         break;
 

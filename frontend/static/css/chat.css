@@ -58,6 +58,11 @@ header #users {
   align-items: flex-end;
 }
 
+.msg-wrapper.other {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
 .msg-wrapper.assistant {
   align-self: flex-start;
   align-items: flex-start;
@@ -101,6 +106,12 @@ header #users {
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: #ffffff;
   border-bottom-right-radius: 4px;
+}
+
+.msg.other {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  color: #ffffff;
+  border-bottom-left-radius: 4px;
 }
 
 .msg.assistant {
