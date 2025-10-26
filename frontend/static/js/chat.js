@@ -138,9 +138,17 @@ function connectSocket() {
         log(`${formatSender(m.message.sender)}> ${m.message.text}`, m.message.sender === 'assistant' ? 'assistant' : 'user');
         break;
 
+      case 'assistant.started':
+        currentRun = m.run.run_id;
+        // Create an empty assistant message element for streaming deltas
+        log('assistant> ', 'assistant');
+        break;
+
       case 'assistant.delta':
         const logEl = $('log').lastElementChild;
-        if (logEl) logEl.textContent += m.delta;
+        if (logEl && logEl.classList.contains('assistant')) {
+          logEl.textContent += m.delta;
+        }
         break;
 
       case 'assistant.completed':

@@ -410,16 +410,16 @@ def register_socketio(socketio, app):
             messages.append(m)
 
             # PRODUCTION TODO: Persist message to database here
-            # from backend.models.message import Message
-            # msg_record = Message(
-            #     id=m["id"],
-            #     room_seq=seq,
-            #     sender=m["sender"],
-            #     text=m["text"],
-            #     timestamp=m["ts"]
-            # )
-            # db.session.add(msg_record)
-            # db.session.commit()
+            from backend.models.message import Message
+            msg_record = Message(
+                id=m["id"],
+                room_seq=seq,
+                sender=m["sender"],
+                text=m["text"],
+                timestamp=m["ts"]
+            )
+            db.session.add(msg_record)
+            db.session.commit()
 
             # Broadcast message
             socketio.emit("server",
