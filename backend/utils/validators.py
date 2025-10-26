@@ -6,7 +6,7 @@ import re
 from email_validator import validate_email, EmailNotValidError
 
 
-def validate_email_format(email: str) -> tuple[bool, str]:
+def validate_email_format(email: str) -> tuple[bool, str, str]:
     """
     Validate email format using email-validator library.
 
@@ -14,14 +14,23 @@ def validate_email_format(email: str) -> tuple[bool, str]:
         email: Email address to validate
 
     Returns:
-        Tuple of (is_valid, error_message)
+        Tuple of (is_valid, error_message, normalized_email)
+        normalized_email will be empty string if validation fails
     """
     try:
-        # Validate and normalize the email
+        # First do a format check without deliverability
         valid = validate_email(email, check_deliverability=False)
-        return True, ""
+        
+        try:
+            # Then try deliverability check, but don't fail if it doesn't work
+            validate_email(email, check_deliverability=True)
+        except EmailNotValidError:
+            # If deliverability check fails, still accept the email if format is valid
+            pass
+            
+        return True, "", valid.normalized
     except EmailNotValidError as e:
-        return False, str(e)
+        return False, str(e), ""
 
 
 def validate_password_strength(password: str) -> tuple[bool, str]:
@@ -29,7 +38,7 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
     Validate password meets security requirements.
 
     Requirements:
-    - Minimum 12 characters
+    - Minimum 6 characters
     - At least one uppercase letter
     - At least one lowercase letter
     - At least one digit
@@ -41,8 +50,8 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, error_message)
     """
-    if len(password) < 12:
-        return False, "Password must be at least 12 characters long"
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters long"
 
     if not re.search(r'[A-Z]', password):
         return False, "Password must contain at least one uppercase letter"

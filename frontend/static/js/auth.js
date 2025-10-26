@@ -75,8 +75,8 @@ async function doRegister() {
     return setAuthMsg('Passwords do not match.', true);
   }
 
-  if (password.length < 12) {
-    return setAuthMsg('Password must be at least 12 characters with uppercase, lowercase, digit, and special character.', true);
+  if (password.length < 6) {
+    return setAuthMsg('Password must be at least 6 characters with uppercase, lowercase, digit, and special character.', true);
   }
 
   try {

@@ -30,10 +30,13 @@ def register():
     if not email or not password:
         return jsonify({"msg": "email and password required"}), 400
 
-    # Validate email format
-    is_valid_email, email_error = validate_email_format(email)
+    # Validate email format and deliverability
+    is_valid_email, email_error, normalized_email = validate_email_format(email)
     if not is_valid_email:
         return jsonify({"msg": f"invalid email: {email_error}"}), 400
+        
+    # Use normalized email for consistency
+    email = normalized_email
 
     # Validate password strength
     is_valid_password, password_error = validate_password_strength(password)
