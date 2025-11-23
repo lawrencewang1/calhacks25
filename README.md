@@ -1,19 +1,28 @@
-# Multiplayer AI Chat Application
+# Multiplayer AI Chat + Find the AI Game
 
-A real-time multiplayer chat application with AI assistant integration, built with Flask, Socket.IO, and modern web technologies.
+A real-time multiplayer chat platform with an integrated social deduction mini-game ("Find the AI" / AI MPOSTER) where one hidden LLM tries to blend in while everyone else chats and votes it out. Built with Flask, Socket.IO, and modern web technologies.
 
 ## Features
 
 - 🔐 **User Authentication** - Secure registration and login with JWT tokens
-- 💬 **Real-time Chat** - WebSocket-based instant messaging with modern chat bubbles
-- 🤖 **AI Assistant (Assistant)** - Intelligent LLM-powered chatbot with context-aware responses
-- 🧠 **Smart Response Detection** - AI decides when to respond based on conversation context
-- 💾 **Persistent Messages** - Chat history saved to database and restored on server restart
-- 👥 **Multi-user Support** - Multiple users can chat simultaneously with distinct visual styles
+- 💬 **Real-time Chat** - Multi-room WebSocket chat with modern UI and persisted history
+- 🤖 **AI Assistant & Imposter** - Context-aware assistant in chat plus a hidden LLM player during games
+- 🕵️ **Find the AI Game** - Host/join lobbies via codes, anonymized nicknames, and a secret AI that tries to pass as human
+- ⏱️ **Timed Rounds & Voting** - 2-round structure with chat (3m) and voting (1m), supermajority fast-forward, and mute-on-elimination
 - 📱 **Responsive Design** - Works on desktop and mobile devices
 - 🎨 **Modern UI** - Clean, dark-themed interface with gradient chat bubbles
 - 🎯 **Intelligent Chunking** - Long AI responses broken into readable chunks at natural boundaries
 - 💡 **Contextual Awareness** - AI responds to follow-ups, emotional content, and direct questions
+
+## Find the AI: Game Overview
+
+- **Goal:** Spot the LLM imposter that is injected when the host starts the game.
+- **Lobby:** Create a lobby from `/game.html`, share the 8-character code (full UUID also works), and wait in the "searching for players" view. Names stay generic until the game begins.
+- **Start conditions:** Host-only start, minimum of 3 human players; an anonymized AI player is auto-added on start.
+- **Round structure:** Two rounds total. Each round has a chat phase (~3 minutes) followed by a voting phase (~1 minute). Timer updates stream to all players; supermajority (>=2/3 of active humans) unlocks a "force end voting" option.
+- **Chat phase:** Everyone talks in real time; the AI occasionally replies (40% chance per human message, with a natural delay) using the last 15 messages for context and casual, slangy tone.
+- **Voting phase:** Players vote on who to eliminate. The player with the most votes is knocked out and muted for the rest of the game; if the AI is eliminated, humans win immediately.
+- **Win/lose:** Humans win by ejecting the AI; if the AI survives through the end of round 2, the AI wins. The end screen reveals the imposter and each player's status, with quick options to play again or return to chat.
 
 ## Tech Stack
 
@@ -108,6 +117,8 @@ gunicorn --worker-class eventlet -w 1 run:app
 
 ## Usage
 
+### Chat
+
 1. **Register an Account**
    - Navigate to `http://localhost:5000/register.html`
    - Enter username, email, and password
@@ -139,6 +150,22 @@ gunicorn --worker-class eventlet -w 1 run:app
    - **Smooth Animations**: Messages slide in with elegant transitions
    - **Stop Generation**: Click Stop to interrupt long AI responses
 
+### Play "Find the AI"
+
+1. **Open the game lobby**  
+   - Log in, then visit `http://localhost:5000/game.html` (or share a link like `/game.html?game=ABCD1234` to pre-fill the join modal).
+2. **Create or join**  
+   - Click **CREATE GAME** to host and get an 8-character code (first 8 of the UUID). Share the code with friends.  
+   - Or click **JOIN GAME** and enter a code to enter an existing lobby.
+3. **Start the match**  
+   - Only the host can start. You need at least 3 human players; an anonymized AI player is automatically added on start. Lobby names stay generic until the game begins.
+4. **Play the rounds**  
+   - Each round: ~3 minutes of open chat, then ~1 minute of voting. Timer updates appear at the top; a supermajority (>=2/3 of active humans) enables **FORCE END VOTING**.  
+   - The AI occasionally replies during chat with casual, human-like messages based on the last 15 messages.
+5. **Vote and finish**  
+   - Select who you think is the AI. Eliminated players are muted for the rest of the game.  
+   - Humans win as soon as the AI is voted out; if the AI survives through round 2, the AI wins. The end screen reveals the imposter with options to **PLAY AGAIN** or return to chat.
+
 ## API Endpoints
 
 ### Authentication
@@ -148,7 +175,7 @@ gunicorn --worker-class eventlet -w 1 run:app
 
 ### WebSocket Events
 
-**Client → Server:**
+**Client → Server (Chat):**
 - `connect` - Establish WebSocket connection with JWT auth
 - `send.message` - Send a chat message
   ```json
@@ -166,7 +193,7 @@ gunicorn --worker-class eventlet -w 1 run:app
   }
   ```
 
-**Server → Client:**
+**Server → Client (Chat):**
 - `room.snapshot` - Initial state with message history (on connect)
   - Includes last 200 messages from database
   - Current user list
@@ -178,6 +205,45 @@ gunicorn --worker-class eventlet -w 1 run:app
   - Messages are complete (not streamed character-by-character)
 - `assistant.started` - AI assistant started processing
 - `assistant.completed` - AI assistant finished
+- `error` - Error notification
+
+**Client → Server (Game):**
+- `game.create` - Create a new lobby and become host
+- `game.join` - Join a lobby by ID or short code
+  ```json
+  { "game_id": "ABCD1234" }
+  ```
+- `game.start` - Host-only; starts the match and injects the AI player
+  ```json
+  { "game_id": "uuid" }
+  ```
+- `game.message` - Send a message during the chat phase
+  ```json
+  { "text": "message content" }
+  ```
+- `game.vote` - Vote for a player during the voting phase
+  ```json
+  { "voted_for_id": "player-uuid" }
+  ```
+- `game.vote.force_end` - Force-end voting after supermajority is reached
+- `game.leave` - Leave the lobby/game
+  ```json
+  { "game_id": "uuid" }
+  ```
+
+**Server → Client (Game):**
+- `game.created` - Sent to host with the new `game` and `player`
+- `game.joined` - Sent to joiner with `game` plus all `players`
+- `game.player.joined` / `game.player.left` - Lobby roster updates
+- `game.started` - Game transitions to playing and AI is added
+- `game.round.start` - Announces current round number (1 or 2)
+- `game.phase.change` - Switches between `chat` and `voting`
+- `game.timer.update` - Remaining ms in the current phase
+- `game.message` - Chat message from any player (human or AI)
+- `game.vote.received` - Confirmation that your vote was recorded
+- `game.vote.supermajority` - Supermajority reached (>=2/3 votes cast) and force-end is allowed
+- `game.vote.result` - Voting outcome with `eliminated_player_id`, `eliminated_player_name`, `was_ai`, `vote_count`
+- `game.ended` - Final results with `winner`, `ai_player_id`, and `all_players`
 - `error` - Error notification
 
 ## Configuration
@@ -292,6 +358,11 @@ mypy backend/
 - Check if JWT token is valid
 - Ensure `ALLOW_GUESTS=false` is set correctly
 - Clear browser localStorage and re-login
+
+**"Can't start the Find the AI game"**
+- Only the host can start; make sure you're the host of the lobby
+- You need at least 3 human players before start (AI is added automatically)
+- Games can only be started from the lobby state (not after already starting/ending)
 
 **"No module named 'flask'"**
 - Activate virtual environment
