@@ -1,4 +1,4 @@
-# Multiplayer AI Chat + Find the AI Game
+# AIMPOSTER
 
 A real-time multiplayer chat platform with an integrated social deduction mini-game ("Find the AI" / AI MPOSTER) where one hidden LLM tries to blend in while everyone else chats and votes it out. Built with Flask, Socket.IO, and modern web technologies.
 
